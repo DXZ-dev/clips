@@ -18,6 +18,8 @@ from .detect.transcriber import LiveTranscriber, WordStore
 from .detect.triggers import CadenceDetector, EnergyDetector, KeywordMatcher, Trigger
 from .ffutil import cuda_available, pick_encoder, resolve_device
 from .pipeline import clip_from_range
+from .publish.base import TokenStore
+from .publish.queue import PublishQueue
 from .subtitles import Word
 
 log = logging.getLogger("clipper.engine")
@@ -37,8 +39,12 @@ class ClipJob:
 
 
 class Engine:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, data_dir: Path | None = None):
         self.cfg = cfg
+        self.publisher = PublishQueue(
+            cfg, db_path=(data_dir / "publish.db") if data_dir else None,
+            tokens=TokenStore(data_dir / "tokens.json") if data_dir else None)
+        self.publisher.on_event = self.event
         self.buffer = RollingBuffer(cfg)
         self.reader: BufferReader = self.buffer.reader
         self.store = WordStore()
@@ -61,6 +67,7 @@ class Engine:
     # ------------------------------------------------------------------ ciclo de vida
     def start(self) -> None:
         self.buffer.start()
+        self.publisher.start()
         for fn in (self._feeder, self._transcribe_loop, self._worker):
             t = threading.Thread(target=fn, name=fn.__name__, daemon=True)
             t.start()
@@ -70,6 +77,7 @@ class Engine:
 
     def stop(self) -> None:
         self._stop.set()
+        self.publisher.stop()
         self.buffer.stop()
 
     def event(self, kind: str, detail: str = "", **extra) -> None:
@@ -239,6 +247,13 @@ class Engine:
         out = clip_from_range(self.cfg, t0, t1, words, job.reason, job.detail)
         job.status, job.file = "done", out.name
         self.event("clip", f"listo: {out.name}", job=job.id)
+        try:
+            j = out.with_suffix(".json")
+            meta = json.loads(j.read_text()) if j.exists() else {}
+            self.publisher.on_clip(out, meta, manual=job.reason == "manual")
+        except Exception as e:  # noqa: BLE001
+            self.event("error", f"cola de publicación: {e}")
+            log.exception("on_clip falló")
 
     # ------------------------------------------------------------------ estado
     def status(self) -> dict:
@@ -255,6 +270,8 @@ class Engine:
             "source": self.cfg.source.type, "queue": self._q.qsize(),
             "transcript": " ".join(w.text for w in self.store.tail(25)),
             "events": list(self.events)[:30],
+            "publish": {"enabled": self.cfg.publish.enabled, "dry_run": self.cfg.publish.dry_run,
+                        "pending_review": sum(1 for i in self.publisher.list() if i["status"] == "pending_review")},
             "durations": self.cfg.clip.duration_options, "default_seconds": self.cfg.clip.default_seconds,
         }
 

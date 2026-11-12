@@ -163,6 +163,67 @@ class TriggersCfg(BaseModel):
     keywords: KeywordsCfg = KeywordsCfg()
 
 
+Mode = Literal["review", "auto"]   # review = el clip espera tu aprobación en el panel; auto = se sube solo
+
+
+class YouTubeCfg(BaseModel):
+    enabled: bool = False
+    mode: Mode = "review"
+    client_id: str = ""
+    client_secret: str = Field("", exclude=True, repr=False)
+    privacy: Literal["private", "unlisted", "public"] = "private"
+    category_id: str = "22"
+    tags: list[str] = []
+
+
+class TikTokCfg(BaseModel):
+    enabled: bool = False
+    mode: Mode = "review"
+    client_key: str = ""
+    client_secret: str = Field("", exclude=True, repr=False)
+    privacy_level: Literal["SELF_ONLY", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "PUBLIC_TO_EVERYONE"] = "SELF_ONLY"
+
+
+class InstagramCfg(BaseModel):
+    enabled: bool = False
+    mode: Mode = "review"
+    ig_user_id: str = ""
+    access_token: str = Field("", exclude=True, repr=False)   # token largo de Meta (caduca a los ~60 días)
+    api_version: str = "v21.0"
+
+
+class WebhookCfg(BaseModel):
+    """Salida genérica: POST multipart a TU URL (n8n, Make, Zapier, un bot propio...). Cubre X, Telegram, Discord..."""
+    enabled: bool = False
+    mode: Mode = "review"
+    url: str = ""
+    auth_header: str = Field("", exclude=True, repr=False)    # valor de la cabecera Authorization
+
+    @field_validator("url")
+    @classmethod
+    def _http(cls, v: str) -> str:
+        v = v.strip()
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("la URL debe empezar por http:// o https://")
+        return v
+
+
+class PublishCfg(BaseModel):
+    enabled: bool = False
+    dry_run: bool = False                 # simula todo el flujo sin tocar ninguna red social
+    include_manual: bool = False          # los clips manuales también entran en la cola (si no, usa «Publicar» a mano)
+    max_per_day: int = Field(6, ge=1)     # por destino
+    min_gap_minutes: int = Field(20, ge=0)
+    max_attempts: int = Field(3, ge=1)
+    title_template: str = "{headline}"
+    description_template: str = "{transcript}\n\n{hashtags}"
+    hashtags: list[str] = ["#shorts", "#clips"]
+    youtube: YouTubeCfg = YouTubeCfg()
+    tiktok: TikTokCfg = TikTokCfg()
+    instagram: InstagramCfg = InstagramCfg()
+    webhook: WebhookCfg = WebhookCfg()
+
+
 class ServerCfg(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8000
@@ -173,6 +234,7 @@ class Config(BaseModel):
     compute: ComputeCfg = ComputeCfg()
     transcribe: TranscribeCfg = TranscribeCfg()
     triggers: TriggersCfg = TriggersCfg()
+    publish: PublishCfg = PublishCfg()
     server: ServerCfg = ServerCfg()
     source: SourceCfg = SourceCfg()
     buffer: BufferCfg = BufferCfg()
@@ -188,7 +250,30 @@ class Config(BaseModel):
 
 
 SETTINGS_FILE = ROOT / "settings.local.yaml"   # cambios hechos desde el panel (se aplican sobre config.yaml)
-SECRETS_FILE = ROOT / "secrets.local.yaml"     # claves de API (chmod 600, fuera de git)
+SECRETS_FILE = ROOT / "secrets.local.yaml"     # claves y secretos (chmod 600, fuera de git)
+TOKENS_FILE = ROOT / "tokens.local.json"       # tokens OAuth obtenidos al conectar cuentas (chmod 600)
+
+# Campos que nunca se escriben en config.yaml/settings ni se devuelven por la API.
+SECRET_PATHS = [
+    "transcribe.api.api_key",
+    "publish.youtube.client_secret",
+    "publish.tiktok.client_secret",
+    "publish.instagram.access_token",
+    "publish.webhook.auth_header",
+]
+
+
+def get_path(cfg: BaseModel, dotted: str):
+    for part in dotted.split("."):
+        cfg = getattr(cfg, part)
+    return cfg
+
+
+def set_path(cfg: BaseModel, dotted: str, value) -> None:
+    *head, leaf = dotted.split(".")
+    for part in head:
+        cfg = getattr(cfg, part)
+    setattr(cfg, leaf, value)
 
 
 def deep_merge(base: dict, patch: dict) -> dict:
@@ -203,13 +288,17 @@ def load_config(path: str | Path | None = None) -> Config:
     default = path is None
     path = Path(path) if path else ROOT / "config.yaml"
     data = (yaml.safe_load(path.read_text()) if path.exists() else {}) or {}
-    secrets = {}
+    secrets: dict = {}
     if default:
         if SETTINGS_FILE.exists():
             data = deep_merge(data, yaml.safe_load(SETTINGS_FILE.read_text()) or {})
         if SECRETS_FILE.exists():
             secrets = yaml.safe_load(SECRETS_FILE.read_text()) or {}
     cfg = Config.model_validate(data)
+    for sp in SECRET_PATHS:
+        if secrets.get(sp):
+            set_path(cfg, sp, secrets[sp])
     import os
-    cfg.transcribe.api.api_key = os.environ.get("CLIPPER_API_KEY") or secrets.get("transcribe_api_key", "")
+    if os.environ.get("CLIPPER_API_KEY"):
+        cfg.transcribe.api.api_key = os.environ["CLIPPER_API_KEY"]
     return cfg

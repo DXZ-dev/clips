@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,15 +35,18 @@ def render_clip(input_args: list[str], out_path: Path, path: CropPath, cfg: Conf
     chain += "[v]"
 
     enc = pick_encoder(cfg.render.encoder, cfg.compute.device)
+    part = out_path.resolve().with_name(out_path.name + ".part")   # el clip no existe hasta estar completo
     for attempt in (enc, "libx264"):
         cmd = [require("ffmpeg"), "-y", "-v", "error", "-nostdin", *input_args,
                "-filter_complex", chain, "-map", "[v]", "-map", "0:a:0?",
                *_encoder_args(attempt, cfg), "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-b:a", cfg.render.audio_bitrate, "-movflags", "+faststart",
-               str(out_path.resolve())]
+               "-f", "mp4", str(part)]
         r = subprocess.run(cmd, cwd=workdir, capture_output=True, text=True)
         if r.returncode == 0:
+            os.replace(part, out_path.resolve())
             return attempt
+        part.unlink(missing_ok=True)
         log.warning("ffmpeg falló con %s: %s", attempt, r.stderr.strip()[-400:])
         if attempt == "libx264":
             raise RuntimeError(f"Render falló: {r.stderr.strip()[-800:]}")

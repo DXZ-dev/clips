@@ -6,3 +6,5 @@ output_clips/
 .pytest_cache/
 settings.local.yaml
 secrets.local.yaml
+tokens.local.json
+data/

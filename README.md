@@ -22,9 +22,31 @@ curl -X POST localhost:8000/clip -H 'content-type: application/json' -d '{"secon
 El panel permite lanzar clips (15/30/60 s, tecla **C**), ver el buffer, la transcripción y los eventos,
 previsualizar/descargar/borrar clips y **cambiar entre GPU NVIDIA y solo CPU en caliente**.
 
+## Publicación automática en redes (Fase 4)
+Activa **Ajustes → Publicación**. Cada clip nuevo crea una entrada por destino activado y, según el modo, espera tu aprobación
+(**Revisión**, por defecto) o se sube solo (**Auto**). Cola persistente en `data/publish.db`; reintentos con espera (1-2-4 min),
+tope diario por destino (`max_per_day`) y separación mínima entre posts (`min_gap_minutes`). Los clips manuales no entran solos
+(`include_manual`); usa el botón «→ Destino» de cada clip, que equivale a aprobarlo. **«Simulacro»** recorre todo el flujo sin tocar redes.
+
+| Destino | API | Qué necesitas |
+|---|---|---|
+| YouTube Shorts | YouTube Data API v3 (subida reanudable) | Proyecto de Google Cloud, cliente OAuth «Web» con el *redirect URI* que muestra el panel, y pulsar **Conectar** |
+| TikTok | Content Posting API (Direct Post) | App en TikTok for Developers con `video.publish`, *redirect URI* registrado, **Conectar** |
+| Instagram Reels | Graph API (subida reanudable) | Cuenta profesional + token largo de Meta + ID de usuario (se pegan en Ajustes) |
+| Webhook | tu URL | n8n/Make/Zapier/bot propio: recibe `file`, `title`, `description`, `meta` y lo reparte (X, Telegram, Discord…) |
+
+Plantillas de título/descripción con `{headline} {transcript} {reason} {detail} {hashtags} {date}`.
+Los secretos van a `secrets.local.yaml` y los tokens OAuth a `tokens.local.json` (ambos 600, fuera de git, nunca se devuelven por la API).
+
+**Límites reales de las plataformas** (no los puede resolver el código): una app de YouTube sin auditar sube los vídeos como *privados*;
+TikTok sin auditar solo permite `SELF_ONLY`; los tokens de Meta caducan a los ~60 días; TikTok exige que el usuario revise el contenido
+antes de publicar, así que `auto` puede no pasar su auditoría. Por eso la visibilidad por defecto es *privada* y el modo es *Revisión*.
+Eres responsable de los derechos de lo que emites (música, juegos, terceros) y de cumplir las normas de cada plataforma.
+Los cuatro destinos están probados **solo con respuestas HTTP simuladas** (según la documentación de cada API), no contra los servicios reales.
+
 ## Privacidad: 100 % local por defecto
 - En ejecución **no se contacta ningún servidor externo**: Whisper corre en tu máquina con `local_files_only` (`transcribe.allow_downloads: false`) y `HF_HUB_OFFLINE=1`; el panel no carga CDNs. Verificado transcribiendo con la red bloqueada.
-- La única operación con red es **descargar el modelo una vez**, y es explícita: `python -m clipper download-model small` (guarda en `./models/whisper-small`). El modelo de rostros también se baja una vez con `scripts/download_models.sh`.
+- Sin publicación activada, la única operación con red es **descargar el modelo una vez**, y es explícita: `python -m clipper download-model small` (guarda en `./models/whisper-small`). El modelo de rostros también se baja una vez con `scripts/download_models.sh`.
 - Si prefieres un servicio de transcripción por API, se configura **desde el panel → ⚙️ Ajustes → Transcripción → API** (URL base, modelo y clave; cualquier servicio compatible con OpenAI `/audio/transcriptions`, incluido uno tuyo en `localhost`). Con «API» el audio del directo sale hacia esa URL. La clave se guarda en `secrets.local.yaml` (permisos 600, fuera de git; también vale `CLIPPER_API_KEY`) y la API del panel nunca la devuelve.
 - Los ajustes del panel se guardan en `settings.local.yaml` y se aplican en caliente (cambiar la fuente reinicia la ingesta y vacía el buffer). `buffer.dir` y `clip.output_dir` solo se editan en `config.yaml`.
 - El panel rechaza peticiones con `Host` no local u `Origin` ajeno (anti DNS-rebinding/CSRF). Si lo sirves en otro nombre, añádelo a `server.allowed_hosts`.
@@ -69,6 +91,7 @@ clipper/render.py      ffmpeg: crop móvil -> 1080x1920 -> ass; NVENC con fallba
 clipper/pipeline.py    orquestación; clipper/cli.py  línea de comandos
 clipper/detect/        vad.py (silero) · transcriber.py (faster-whisper) · triggers.py
 clipper/engine.py      motor: buffer + transcripción + disparadores + cola de clips
+clipper/publish/       base.py (OAuth, tokens) · youtube/tiktok/instagram/webhook.py · metadata.py · queue.py (SQLite + worker)
 clipper/web/           app.py (FastAPI) + static/index.html (panel)
 tests/                 pytest (lógica pura)
 ```

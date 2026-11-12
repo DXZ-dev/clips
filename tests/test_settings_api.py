@@ -7,7 +7,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-import clipper.settings as st
+import clipper.config as C
 from clipper.config import Config
 from clipper.detect.api_transcriber import parse_words, to_wav, transcribe_api
 from clipper.engine import Engine
@@ -16,12 +16,12 @@ from clipper.web.app import create_app
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.setattr(st, "SETTINGS_FILE", tmp_path / "settings.local.yaml")
-    monkeypatch.setattr(st, "SECRETS_FILE", tmp_path / "secrets.local.yaml")
+    monkeypatch.setattr(C, "SETTINGS_FILE", tmp_path / "settings.local.yaml")
+    monkeypatch.setattr(C, "SECRETS_FILE", tmp_path / "secrets.local.yaml")
     cfg = Config()
     cfg.buffer.dir, cfg.clip.output_dir = str(tmp_path / "buf"), str(tmp_path / "out")
     cfg.transcribe.enabled = False
-    eng = Engine(cfg)
+    eng = Engine(cfg, data_dir=tmp_path)
     return TestClient(create_app(eng, manage_engine=False), base_url="http://localhost"), cfg, tmp_path
 
 
@@ -35,7 +35,7 @@ def test_settings_roundtrip_hides_key_and_persists(env):
     assert c.get("/api/settings").json()["transcribe"]["api"]["api_key_set"] is True
     assert cfg.transcribe.api.base_url == "http://localhost:9000/v1" and cfg.transcribe.api.api_key == "sk-secret"
     assert "sk-secret" not in (tp / "settings.local.yaml").read_text()          # la clave no va en settings
-    assert yaml.safe_load((tp / "secrets.local.yaml").read_text())["transcribe_api_key"] == "sk-secret"
+    assert yaml.safe_load((tp / "secrets.local.yaml").read_text())["transcribe.api.api_key"] == "sk-secret"
     assert oct((tp / "secrets.local.yaml").stat().st_mode & 0o777) == "0o600"
     # dejar la clave vacía en el formulario la conserva; clear_api_key la borra
     c.put("/api/settings", json={"transcribe": {"api": {"model": "x"}}})

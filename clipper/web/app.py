@@ -7,17 +7,28 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import ValidationError
 from pydantic import BaseModel
 
 from ..engine import Engine
+from ..publish.base import AuthError, OAuthPublisher, OAuthStates
 
 STATIC = Path(__file__).parent / "static"
 
 
 class ClipRequest(BaseModel):
     seconds: int | None = None
+
+
+class EnqueueRequest(BaseModel):
+    clip: str
+    platforms: list[str]
+
+
+class EditRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
 
 
 class DeviceRequest(BaseModel):
@@ -102,6 +113,92 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
             raise HTTPException(422, "; ".join(msgs))
         except ValueError as e:
             raise HTTPException(422, str(e))
+
+    # ------------------------------------------------------------------ publicación
+    pub = engine.publisher
+    oauth_states = OAuthStates()
+
+    @app.get("/api/publish")
+    def publish_status():
+        return pub.status()
+
+    @app.post("/api/publish/enqueue")
+    def publish_enqueue(req: EnqueueRequest):
+        """Acción explícita del usuario: entra directamente en la cola (sin pasar por revisión)."""
+        if not engine.cfg.publish.enabled:
+            raise HTTPException(409, "La publicación está desactivada (Ajustes → Publicación)")
+        try:
+            path = pub.clip_path(req.clip)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        if not path.exists():
+            raise HTTPException(404, "el clip no existe")
+        ids = []
+        for n in dict.fromkeys(req.platforms):
+            if n not in pub.destinations():
+                raise HTTPException(422, f"destino no activado: {n}")
+            ids.append(pub.enqueue(req.clip, n, approved=True))
+        return {"ids": ids}
+
+    def _act(fn, pid: int, *a):
+        try:
+            fn(pid, *a)
+        except KeyError:
+            raise HTTPException(404, "no existe")
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        return pub.get(pid)
+
+    @app.post("/api/publish/{pid}/approve")
+    def publish_approve(pid: int):
+        return _act(pub.approve, pid)
+
+    @app.post("/api/publish/{pid}/reject")
+    def publish_reject(pid: int):
+        return _act(pub.reject, pid)
+
+    @app.put("/api/publish/{pid}")
+    def publish_edit(pid: int, req: EditRequest):
+        return _act(pub.edit, pid, req.title, req.description)
+
+    @app.delete("/api/publish/{pid}")
+    def publish_delete(pid: int):
+        _act(pub.delete, pid)
+        return {"deleted": pid}
+
+    def _oauth(provider: str) -> OAuthPublisher:
+        p = pub.providers.get(provider)
+        if not isinstance(p, OAuthPublisher):
+            raise HTTPException(404, "proveedor desconocido")
+        return p
+
+    @app.get("/oauth/{provider}/start")
+    def oauth_start(provider: str):
+        p = _oauth(provider)
+        try:
+            return RedirectResponse(p.authorize_url(oauth_states.new(provider)))
+        except AuthError as e:
+            raise HTTPException(409, str(e))
+
+    @app.get("/oauth/{provider}/callback")
+    def oauth_callback(provider: str, state: str = "", code: str = "", error: str = ""):
+        p = _oauth(provider)
+        if not oauth_states.consume(state, provider):
+            return HTMLResponse("<h3>Estado OAuth inválido o caducado. Vuelve a pulsar «Conectar».</h3>", 400)
+        if error or not code:
+            return HTMLResponse(f"<h3>{p.label}: autorización cancelada ({error or 'sin código'}).</h3>", 400)
+        try:
+            p.exchange_code(code)
+        except Exception as e:  # noqa: BLE001
+            return HTMLResponse(f"<h3>No se pudo conectar {p.label}: {str(e)[:300]}</h3>", 502)
+        engine.event("publish", f"{p.label} conectado")
+        return RedirectResponse("/")
+
+    @app.post("/api/publish/{provider}/disconnect")
+    def oauth_disconnect(provider: str):
+        p = _oauth(provider)
+        pub.tokens.delete(p.name)
+        return {"disconnected": provider}
 
     def _safe(name: str) -> Path:
         if Path(name).name != name or not name.endswith(".mp4"):

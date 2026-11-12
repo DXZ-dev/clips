@@ -81,6 +81,19 @@ input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width
    <label>Duración clip automático (s) <input id="g_auto" type="number"></label>
    <label>Tiempo posterior al disparo (s) <input id="g_post" type="number"></label>
   </fieldset>
+  <fieldset id="pubset"><legend>Publicación</legend>
+   <label class="chk"><input type="checkbox" id="p_on"> Activar publicación en redes</label>
+   <label class="chk"><input type="checkbox" id="p_dry"> Simulacro (no toca ninguna red social)</label>
+   <label class="chk"><input type="checkbox" id="p_man"> Incluir también los clips manuales</label>
+   <label>Máx. publicaciones por día y destino <input id="p_max" type="number"></label>
+   <label>Separación mínima (min) <input id="p_gap" type="number"></label>
+   <label>Plantilla de título <input id="p_tt"></label>
+   <label>Plantilla de descripción <textarea id="p_dt" rows="3"></textarea></label>
+   <label>Hashtags (separados por espacio) <input id="p_ht"></label>
+   <div class="mut" style="font-size:12px">Variables: {headline} {transcript} {reason} {detail} {hashtags} {date}</div>
+   <div id="destset"></div>
+   <div class="warn">⚠️ Modo «Revisión» (por defecto): el clip espera tu aprobación aquí. «Auto» sube sin que lo veas: revisa antes los derechos de lo que emites (música, juegos, terceros) y las normas de cada plataforma.</div>
+  </fieldset>
   <fieldset><legend>Subtítulos</legend>
    <label class="chk"><input type="checkbox" id="u_on"> Activados</label>
    <label>Color de la palabra activa <input id="u_hi" type="color"></label>
@@ -90,6 +103,10 @@ input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width
  </div>
  <div class="row" style="margin-top:10px"><button id="save" class="sel">Guardar y aplicar</button><span id="smsg" class="mut"></span></div>
 </details>
+<section class="card" style="margin-top:12px" id="pubcard"><h2>Publicación en redes <span id="pubflag" class="mut"></span></h2>
+ <div id="dests" class="row" style="gap:12px;margin-bottom:10px"></div>
+ <div id="queue"></div>
+</section>
 <section class="card" style="margin-top:12px"><h2>Eventos</h2><div id="events"></div></section>
 <section class="card" style="margin-top:12px"><h2>Clips generados</h2><div id="clips"></div></section>
 </main>
@@ -118,7 +135,9 @@ async function clips(){
  const sig=JSON.stringify(c.map(x=>x.name));if(sig===lastClips)return;lastClips=sig;
  $("clips").innerHTML=c.map(x=>`<div class="clip"><video controls preload="metadata" src="/clips/${encodeURIComponent(x.name)}"></video>
  <small>${esc(x.reason||"")} · ${x.duration??"?"} s · ${x.size_mb} MB</small><small>${esc(x.detail||"")}</small>
- <div class="row"><a href="/clips/${encodeURIComponent(x.name)}?download=true"><button>Descargar</button></a><button data-del="${esc(x.name)}">Borrar</button></div></div>`).join("")||'<span class="mut">todavía no hay clips</span>';
+ <div class="row"><a href="/clips/${encodeURIComponent(x.name)}?download=true"><button>Descargar</button></a><button data-del="${esc(x.name)}">Borrar</button></div>
+ <div class="row" style="margin-top:4px">${(window.pubDests||[]).map(d=>`<button data-pub="${d[0]}" data-clip="${esc(x.name)}">→ ${esc(d[1])}</button>`).join("")}</div></div>`).join("")||'<span class="mut">todavía no hay clips</span>';
+ document.querySelectorAll("[data-pub]").forEach(b=>b.onclick=async()=>{try{await api("/api/publish/enqueue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({clip:b.dataset.clip,platforms:[b.dataset.pub]})});pubSig="";pubs()}catch(e){alert(e.message)}});
  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{if(confirm("¿Borrar "+b.dataset.del+"?")){await api("/api/clips/"+encodeURIComponent(b.dataset.del),{method:"DELETE"});lastClips="";clips()}});
 }
 async function go(){
@@ -137,7 +156,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -148,10 +167,55 @@ $("save").onclick=async()=>{
   triggers:{cooldown_seconds:+$("g_cool").value,auto_clip_seconds:+$("g_auto").value,post_roll_seconds:+$("g_post").value,
    energy:{enabled:$("e_on").checked,spike_db:+$("e_db").value},cadence:{enabled:$("c_on").checked},
    keywords:{enabled:$("k_on").checked,laughter:$("k_laugh").checked,phrases:$("k_phr").value.split("\n").map(x=>x.trim()).filter(Boolean)}},
-  subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
+  publish:pubPatch(),subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
  try{const r=await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
   $("smsg").textContent=r.changed.length?"Aplicado: "+r.changed.join(", "):"Sin cambios";$("a_clear").checked=false;loadSettings()}
  catch(e){$("smsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};
 $("settings").addEventListener("toggle",()=>{if($("settings").open)loadSettings()});
-status();clips();setInterval(status,1500);setInterval(clips,4000);
+
+const DEST={
+ youtube:{label:"YouTube Shorts",f:[["client_id","ID de cliente (Google Cloud)"],["client_secret","Secreto de cliente",1],["privacy","Visibilidad",["private","unlisted","public"]]]},
+ tiktok:{label:"TikTok",f:[["client_key","Client key"],["client_secret","Client secret",1],["privacy_level","Privacidad",["SELF_ONLY","MUTUAL_FOLLOW_FRIENDS","FOLLOWER_OF_CREATOR","PUBLIC_TO_EVERYONE"]]]},
+ instagram:{label:"Instagram Reels",f:[["ig_user_id","ID de usuario de Instagram"],["access_token","Token largo de Meta",1]]},
+ webhook:{label:"Webhook propio (n8n/Make/…)",f:[["url","URL"],["auth_header","Cabecera Authorization",1]]}};
+function buildDestSettings(){ $("destset").innerHTML=Object.entries(DEST).map(([k,d])=>`<details style="margin-top:8px"><summary>${d.label}</summary>
+ <label class="chk"><input type="checkbox" id="d_${k}_enabled"> Activado</label>
+ <label>Modo <select id="d_${k}_mode"><option value="review">Revisión (apruebo yo)</option><option value="auto">Automático</option></select></label>
+ ${d.f.map(([f,l,x])=>Array.isArray(x)?`<label>${l}<select id="d_${k}_${f}">${x.map(o=>`<option>${o}</option>`).join("")}</select></label>`:
+  `<label>${l}<input id="d_${k}_${f}" ${x?'type="password" autocomplete="off"':""}></label>${x?`<label class="chk"><input type="checkbox" id="c_${k}_${f}"> Borrar guardado</label>`:""}`).join("")}
+ </details>`).join("")}
+buildDestSettings();
+function fillPub(c){const p=c.publish;V("p_on",p.enabled);V("p_dry",p.dry_run);V("p_man",p.include_manual);V("p_max",p.max_per_day);V("p_gap",p.min_gap_minutes);
+ V("p_tt",p.title_template);V("p_dt",p.description_template);V("p_ht",p.hashtags.join(" "));
+ for(const[k,d]of Object.entries(DEST)){const o=p[k];V(`d_${k}_enabled`,o.enabled);V(`d_${k}_mode`,o.mode);
+  for(const[f,l,x]of d.f){const e=$(`d_${k}_${f}`);if(x===1){e.value="";e.placeholder=o[f+"_set"]?"(guardado — vacío = conservar)":"";}else V(`d_${k}_${f}`,o[f])}}}
+function pubPatch(){const o={enabled:$("p_on").checked,dry_run:$("p_dry").checked,include_manual:$("p_man").checked,max_per_day:+$("p_max").value,min_gap_minutes:+$("p_gap").value,
+ title_template:$("p_tt").value,description_template:$("p_dt").value,hashtags:$("p_ht").value.split(/\s+/).filter(Boolean)};
+ for(const[k,d]of Object.entries(DEST)){const x={enabled:$(`d_${k}_enabled`).checked,mode:$(`d_${k}_mode`).value};
+  for(const[f,l,sec]of d.f){const v=$(`d_${k}_${f}`).value;if(sec===1){if(v)x[f]=v;if($(`c_${k}_${f}`).checked)x["clear_"+f]=true}else x[f]=v}
+  o[k]=x}return o}
+const ST={pending_review:"⏳ pendiente de revisión",queued:"🕒 en cola",uploading:"⬆️ subiendo",published:"✅ publicado",failed:"❌ falló",rejected:"🚫 rechazado"};
+let pubSig="";
+async function pubs(){let p;try{p=await api("/api/publish")}catch{return}
+ window.pubDests=p.enabled?Object.entries(p.destinations).filter(([k,d])=>d.enabled).map(([k,d])=>[k,d.label]):[];if(JSON.stringify(window.pubDests)!==window._pd){window._pd=JSON.stringify(window.pubDests);lastClips=""}
+ $("pubflag").textContent=!p.enabled?"· desactivada":p.dry_run?"· SIMULACRO":"";
+ const sig=JSON.stringify(p);if(sig===pubSig)return;pubSig=sig;
+ $("dests").innerHTML=Object.entries(p.destinations).map(([k,d])=>{
+  const chip=!d.enabled?'<span class="mut">desactivado</span>':!d.configured?'<span class="err">sin configurar</span>':d.oauth&&!d.connected?'<span class="err">sin conectar</span>':'<span style="color:var(--ok)">listo</span>';
+  const btn=d.enabled&&d.oauth&&d.configured?(d.connected?`<button data-disc="${k}">Desconectar</button>`:`<a href="/oauth/${k}/start"><button class="sel">Conectar</button></a>`):"";
+  return `<div class="card" style="padding:8px 12px;min-width:200px"><b>${esc(d.label)}</b><br>${chip} · <span class="mut">${d.mode==="auto"?"auto":"revisión"}</span> ${btn}
+   ${d.oauth&&d.enabled?`<div class="mut" style="font-size:11px;margin-top:4px">Redirect URI a registrar:<br><code>${esc(d.redirect_uri)}</code></div>`:""}</div>`}).join("");
+ document.querySelectorAll("[data-disc]").forEach(b=>b.onclick=async()=>{await api(`/api/publish/${b.dataset.disc}/disconnect`,{method:"POST"});pubSig="";pubs()});
+ $("queue").innerHTML=p.items.map(i=>{const pend=i.status==="pending_review",ed=pend||i.status==="failed";
+  return `<div class="ev" style="padding:8px 0"><div class="row"><b>${esc(p.destinations[i.platform]?.label||i.platform)}</b> <span>${ST[i.status]||i.status}</span> <span class="mut">${esc(i.clip)}</span>
+  ${i.url?`<a style="color:var(--ac)" href="${esc(i.url)}" target="_blank" rel="noopener">abrir</a>`:""}</div>
+  ${ed?`<input data-t="${i.id}" value="${esc(i.title)}" style="width:100%;margin-top:4px;background:#10131a;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:5px 8px">`:`<div class="mut">${esc(i.title)}</div>`}
+  ${i.error?`<div class="err" style="font-size:12px">${esc(i.error)}</div>`:""}
+  <div class="row" style="margin-top:4px">${pend||i.status==="failed"||i.status==="rejected"?`<button class="sel" data-a="approve" data-id="${i.id}">${i.status==="pending_review"?"Aprobar y publicar":"Reintentar"}</button>`:""}
+  ${pend||i.status==="queued"?`<button data-a="reject" data-id="${i.id}">Rechazar</button>`:""}
+  ${i.status!=="uploading"?`<button data-a="del" data-id="${i.id}">Quitar</button>`:""}</div></div>`}).join("")||'<span class="mut">cola vacía</span>';
+ document.querySelectorAll("[data-a]").forEach(b=>b.onclick=async()=>{const id=b.dataset.id,a=b.dataset.a;
+  try{const t=document.querySelector(`[data-t="${id}"]`);if(a==="approve"&&t)await api(`/api/publish/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:t.value})});
+   if(a==="del")await api(`/api/publish/${id}`,{method:"DELETE"});else await api(`/api/publish/${id}/${a}`,{method:"POST"})}catch(e){alert(e.message)}pubSig="";pubs()})}
+status();clips();pubs();setInterval(pubs,3000);setInterval(status,1500);setInterval(clips,4000);
 </script></body></html>
