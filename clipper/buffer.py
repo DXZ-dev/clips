@@ -81,19 +81,12 @@ class BufferReader:
             "last_segment_age": None if age is None else round(age, 1),
         }
 
-    def prepare(self, seconds: float) -> ClipInput:
-        """Fija (hardlink) los últimos `seconds` y devuelve la entrada ffmpeg. Falta hasta 1 segmento
-        (el que se está escribiendo): la latencia máxima del buffer es `segment_seconds`."""
+    def bounds(self) -> tuple[float, float] | None:
+        """(inicio del segmento más antiguo, fin del más reciente) en tiempo de stream."""
         segs = self.segments()
-        if not segs:
-            raise RuntimeError("El buffer está vacío (¿está corriendo la ingesta?)")
-        chosen: list[Segment] = []
-        acc = 0.0
-        for s in reversed(segs):
-            chosen.insert(0, s)
-            acc += s.dur
-            if acc >= seconds:
-                break
+        return (segs[0].start, segs[-1].end) if segs else None
+
+    def _pin(self, chosen: list[Segment], ss: float, dur: float) -> ClipInput:
         work = Path(tempfile.mkdtemp(prefix=f"clip_{uuid.uuid4().hex[:6]}_", dir=self.dir))
         lines = []
         for s in chosen:
@@ -104,10 +97,25 @@ class BufferReader:
                 shutil.copy2(s.path, dst)
             lines.append(f"file '{dst}'")
         (work / "list.txt").write_text("\n".join(lines) + "\n")
-        ss = max(0.0, acc - seconds)
         args = (["-ss", f"{ss:.3f}"] if ss > 0 else []) + [
             "-f", "concat", "-safe", "0", "-i", str(work / "list.txt")]
-        return ClipInput(args, min(seconds, acc), work)
+        return ClipInput(args, dur, work)
+
+    def prepare(self, seconds: float) -> ClipInput:
+        """Los últimos `seconds` del buffer (falta como mucho el segmento en curso: latencia ≤ segment_seconds)."""
+        b = self.bounds()
+        if not b:
+            raise RuntimeError("El buffer está vacío (¿está corriendo la ingesta?)")
+        return self.prepare_range(max(b[0], b[1] - seconds), b[1])
+
+    def prepare_range(self, t0: float, t1: float) -> ClipInput:
+        """Tramo [t0, t1] en tiempo de stream; se recorta a lo que haya en el buffer."""
+        segs = [s for s in self.segments() if s.end > t0 and s.start < t1]
+        if not segs:
+            raise RuntimeError("El tramo pedido ya no está en el buffer")
+        start = max(t0, segs[0].start)
+        end = min(t1, segs[-1].end)
+        return self._pin(segs, start - segs[0].start, end - start)
 
 
 class RollingBuffer:

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>clipper</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#262a33;--tx:#e8eaf0;--mut:#8b92a3;--ac:#ffe600;--ok:#35d07f;--bad:#ff5d5d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}h1{font-size:18px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 10px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-right:6px}.dot.on{background:var(--ok)}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--ac);width:0;transition:width .5s}
+button{font:inherit;color:var(--tx);background:var(--line);border:1px solid #333948;border-radius:8px;padding:8px 14px;cursor:pointer}
+button:hover{border-color:var(--mut)}button.sel{background:var(--ac);color:#111;border-color:var(--ac);font-weight:600}
+button.big{width:100%;padding:16px;font-size:16px;background:var(--ac);color:#111;font-weight:700;border:0;margin-top:10px}
+button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mut{color:var(--mut)}.kv{display:flex;justify-content:space-between;padding:3px 0}
+#events{max-height:220px;overflow:auto;font-size:13px}.ev{padding:3px 0;border-bottom:1px solid var(--line)}.ev b{color:var(--ac);font-weight:600}
+.err{color:var(--bad)}#tr{font-style:italic;color:var(--mut);min-height:40px}
+#clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.clip video{width:100%;aspect-ratio:9/16;background:#000;border-radius:8px}.clip small{display:block;color:var(--mut)}
+.clip a,.clip button{font-size:12px;padding:4px 8px;text-decoration:none;color:var(--tx)}
+</style></head>
+<body><main>
+<h1>✂️ clipper <span class="mut" id="src"></span></h1>
+<div class="grid">
+ <section class="card"><h2>Buffer</h2>
+  <div><span class="dot" id="live"></span><span id="livetxt">—</span></div>
+  <div class="bar"><i id="fill"></i></div>
+  <div class="kv"><span class="mut">Almacenado</span><span id="buf">—</span></div>
+  <div class="kv"><span class="mut">Whisper</span><span id="wh">—</span></div>
+  <div class="kv"><span class="mut">Encoder</span><span id="enc">—</span></div>
+  <div class="kv"><span class="mut">Cola de clips</span><span id="q">0</span></div>
+  <div class="row" style="margin-top:8px"><span class="mut">Cómputo:</span>
+   <button data-dev="auto">Auto</button><button data-dev="cuda">GPU NVIDIA</button><button data-dev="cpu">Solo CPU</button></div>
+  <div class="mut" id="devnote" style="margin-top:6px;font-size:12px"></div>
+ </section>
+ <section class="card"><h2>Clip manual <span class="mut">(tecla C)</span></h2>
+  <div class="row" id="durs"></div>
+  <button class="big" id="go">Guardar últimos <span id="gosec">30</span> s</button>
+  <div id="msg" class="mut" style="margin-top:8px"></div>
+  <h2 style="margin-top:14px">Última transcripción</h2><div id="tr">—</div>
+ </section>
+</div>
+<section class="card" style="margin-top:12px"><h2>Eventos</h2><div id="events"></div></section>
+<section class="card" style="margin-top:12px"><h2>Clips generados</h2><div id="clips"></div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let secs=30,buildDur=false,lastClips="";
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function api(p,o){const r=await fetch(p,o);if(!r.ok){let d="";try{d=(await r.json()).detail}catch{}throw new Error(d||r.status)}return r.json()}
+function pickDur(s){secs=s;$("gosec").textContent=s;document.querySelectorAll("#durs button").forEach(b=>b.classList.toggle("sel",+b.dataset.s===s))}
+async function status(){
+ let s;try{s=await api("/api/status")}catch{$("livetxt").textContent="sin conexión con el servidor";return}
+ $("src").textContent="· fuente: "+s.source;
+ if(!buildDur){buildDur=true;$("durs").innerHTML=s.durations.map(d=>`<button data-s="${d}">${d} s</button>`).join("");
+  document.querySelectorAll("#durs button").forEach(b=>b.onclick=()=>pickDur(+b.dataset.s));pickDur(s.default_seconds)}
+ const b=s.buffer;$("live").className="dot"+(b.live?" on":"");$("livetxt").textContent=b.live?"En directo":(b.error?"Error: "+b.error:"Esperando señal…");
+ $("fill").style.width=Math.min(100,b.buffered_seconds/b.window_seconds*100)+"%";
+ $("buf").textContent=`${b.buffered_seconds} s / ${b.window_seconds} s`;$("q").textContent=s.queue;
+ const t=s.transcriber;$("wh").innerHTML=!t.enabled?"desactivado":t.error?`<span class="err">error</span>`:!t.ready?"cargando modelo…":`${esc(t.model)} (retraso ${t.lag_seconds??"—"} s)`;
+ $("enc").textContent=s.compute.encoder+" · whisper en "+s.compute.whisper_device;
+ document.querySelectorAll("[data-dev]").forEach(x=>x.classList.toggle("sel",x.dataset.dev===s.compute.requested));
+ $("devnote").textContent=s.compute.cuda_available?"":"No se detecta GPU CUDA: 'GPU NVIDIA' caerá a CPU.";
+ $("tr").textContent=s.transcript||"—";
+ $("events").innerHTML=s.events.map(e=>`<div class="ev"><span class="mut">${e.t}</span> <b>${esc(e.kind)}</b> ${esc(e.detail)}</div>`).join("")||'<span class="mut">sin eventos</span>';
+}
+async function clips(){
+ let c;try{c=await api("/api/clips")}catch{return}
+ const sig=JSON.stringify(c.map(x=>x.name));if(sig===lastClips)return;lastClips=sig;
+ $("clips").innerHTML=c.map(x=>`<div class="clip"><video controls preload="metadata" src="/clips/${encodeURIComponent(x.name)}"></video>
+ <small>${esc(x.reason||"")} · ${x.duration??"?"} s · ${x.size_mb} MB</small><small>${esc(x.detail||"")}</small>
+ <div class="row"><a href="/clips/${encodeURIComponent(x.name)}?download=true"><button>Descargar</button></a><button data-del="${esc(x.name)}">Borrar</button></div></div>`).join("")||'<span class="mut">todavía no hay clips</span>';
+ document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{if(confirm("¿Borrar "+b.dataset.del+"?")){await api("/api/clips/"+encodeURIComponent(b.dataset.del),{method:"DELETE"});lastClips="";clips()}});
+}
+async function go(){
+ $("go").disabled=true;try{const r=await api("/clip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({seconds:secs})});
+  $("msg").textContent="Clip en cola ("+r.job+")…"}catch(e){$("msg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}
+ setTimeout(()=>$("go").disabled=false,800)}
+$("go").onclick=go;
+document.addEventListener("keydown",e=>{if(e.key.toLowerCase()==="c"&&!e.ctrlKey&&!e.metaKey&&!e.target.matches("input,textarea"))go()});
+document.querySelectorAll("[data-dev]").forEach(b=>b.onclick=async()=>{try{await api("/api/device",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device:b.dataset.dev})});status()}catch(e){$("msg").textContent=e.message}});
+status();clips();setInterval(status,1500);setInterval(clips,4000);
+</script></body></html>

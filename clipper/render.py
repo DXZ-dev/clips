@@ -33,7 +33,7 @@ def render_clip(input_args: list[str], out_path: Path, path: CropPath, cfg: Conf
         chain += ",ass=subs.ass"          # ruta relativa + cwd=workdir evita escapes
     chain += "[v]"
 
-    enc = pick_encoder(cfg.render.encoder)
+    enc = pick_encoder(cfg.render.encoder, cfg.compute.device)
     for attempt in (enc, "libx264"):
         cmd = [require("ffmpeg"), "-y", "-v", "error", "-nostdin", *input_args,
                "-filter_complex", chain, "-map", "[v]", "-map", "0:a:0?",

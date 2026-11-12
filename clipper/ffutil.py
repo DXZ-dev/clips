@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -57,14 +58,38 @@ def _encoder_works(name: str) -> bool:
     return r.returncode == 0
 
 
-def pick_encoder(preference: str = "auto") -> str:
-    if preference == "libx264":
+def pick_encoder(preference: str = "auto", device: str = "auto") -> str:
+    """device=cpu fuerza libx264; device=cuda pide NVENC (y avisa si no funciona); auto prueba NVENC."""
+    if preference == "libx264" or device == "cpu":
         return "libx264"
     order = [preference] if preference != "auto" else ["h264_nvenc", "hevc_nvenc"]
     for enc in order:
         if _encoder_works(enc):
             return enc
+    if device == "cuda":
+        logging.getLogger("clipper").warning("Se pidió GPU pero NVENC no funciona: se usa libx264 (CPU)")
     return "libx264"
+
+
+@functools.lru_cache(maxsize=None)
+def cuda_available() -> bool:
+    """¿Puede CTranslate2 (faster-whisper) usar una GPU CUDA?"""
+    try:
+        import ctranslate2
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def resolve_device(device: str = "auto") -> str:
+    """Devuelve 'cuda' o 'cpu' para el modelo de transcripción."""
+    if device == "cpu":
+        return "cpu"
+    if cuda_available():
+        return "cuda"
+    if device == "cuda":
+        logging.getLogger("clipper").warning("Se pidió GPU pero CUDA no está disponible: se usa CPU")
+    return "cpu"
 
 
 def hw_report() -> dict:
@@ -73,6 +98,6 @@ def hw_report() -> dict:
     return {
         "ffmpeg": shutil.which("ffmpeg"), "nvidia_gpu": nvidia,
         "h264_nvenc": _encoder_works("h264_nvenc"), "hevc_nvenc": _encoder_works("hevc_nvenc"),
-        "encoder": pick_encoder("auto"),
+        "cuda_whisper": cuda_available(), "encoder": pick_encoder("auto"),
         "streamlink": shutil.which("streamlink"), "yt-dlp": shutil.which("yt-dlp"),
     }

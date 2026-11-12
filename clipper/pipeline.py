@@ -67,3 +67,18 @@ def clip_from_file(cfg: Config, src: str | Path, out: Path | None = None, words:
     out = out or cfg.path(cfg.clip.output_dir) / f"{Path(src).stem}_9x16.mp4"
     return _run(cfg, args, [], src, out, words, {"reason": reason, "source": src,
                                                   "duration": round(min(total, last_seconds or total), 2)})
+
+
+def clip_from_range(cfg: Config, t0: float, t1: float, words: list[Word] | None, reason: str,
+                    detail: str = "") -> Path:
+    """Clip del tramo [t0, t1] (tiempo de stream). `words` ya vienen relativos a t0."""
+    reader = BufferReader(cfg.buffer.dir, cfg.buffer.segment_seconds, cfg.buffer.window_seconds)
+    ci = reader.prepare_range(t0, t1)
+    try:
+        out = cfg.path(cfg.clip.output_dir) / f"clip_{time.strftime('%Y%m%d_%H%M%S')}_{reason}.mp4"
+        meta = {"reason": reason, "detail": detail, "duration": round(ci.duration, 2),
+                "transcript": " ".join(w.text for w in (words or []))}
+        return _run(cfg, ci.args, ["-f", "concat", "-safe", "0"], str(ci.workdir / "list.txt"), out,
+                    words, meta)
+    finally:
+        ci.cleanup()

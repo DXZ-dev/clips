@@ -1,5 +1,8 @@
 # Configuración de clipper. Todas las rutas relativas se resuelven desde la carpeta del proyecto.
 
+compute:
+  device: auto          # auto | cuda | cpu  -> afecta a Whisper (GPU/CPU) y al encoder (NVENC/libx264)
+
 source:
   type: file            # file | rtmp | hls | streamlink | ytdlp
   # rtmp : rtmp://0.0.0.0:1935/live/obs   (ffmpeg escucha; en OBS: Servicio=Personalizado, Servidor=rtmp://IP:1935/live, Clave=obs)
@@ -59,3 +62,26 @@ render:
   crf: 21
   nvenc_cq: 23
   audio_bitrate: 160k
+
+transcribe:
+  enabled: true
+  model: small          # tiny/base si tu CPU no sigue el ritmo; small/medium con GPU
+  language: es          # null = autodetectar
+  compute_type: auto    # auto => float16 (GPU) / int8 (CPU)
+  beam_size: 1
+  vad: {threshold: 0.5, min_silence_ms: 500, max_chunk_seconds: 20}
+
+triggers:
+  cooldown_seconds: 40
+  auto_clip_seconds: 30     # duración del clip de los disparadores automáticos
+  post_roll_seconds: 8      # se espera este tiempo tras el disparo para incluir el desenlace
+  energy:  {enabled: true, spike_db: 10, floor_db: -38, window_seconds: 1.0, warmup_seconds: 20}
+  cadence: {enabled: true, words_per_second: 4.5, window_seconds: 4}
+  keywords:
+    enabled: true
+    laughter: true          # "jajaja" en la transcripción
+    phrases: ["mira esto", "increíble", "ojo con esto", "no puede ser", "qué locura"]
+
+server:
+  host: 127.0.0.1           # no expongas el panel a la red: no tiene autenticación
+  port: 8000

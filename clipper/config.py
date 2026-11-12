@@ -79,7 +79,65 @@ class RenderCfg(BaseModel):
     audio_bitrate: str = "160k"
 
 
+class ComputeCfg(BaseModel):
+    """Dónde corre el trabajo pesado. auto = GPU NVIDIA si funciona, si no CPU."""
+    device: Literal["auto", "cuda", "cpu"] = "auto"
+
+
+class VadCfg(BaseModel):
+    threshold: float = 0.5
+    min_silence_ms: int = 500
+    max_chunk_seconds: float = 20.0
+
+
+class TranscribeCfg(BaseModel):
+    enabled: bool = True
+    model: str = "small"                 # tiny | base | small | medium | large-v3 ...
+    language: str | None = "es"          # None = autodetectar
+    compute_type: str = "auto"           # auto => float16 en GPU, int8 en CPU
+    beam_size: int = 1
+    vad: VadCfg = VadCfg()
+
+
+class EnergyCfg(BaseModel):
+    enabled: bool = True
+    spike_db: float = 10.0               # subida sobre la mediana de los últimos 60 s
+    floor_db: float = -38.0              # nivel mínimo absoluto para considerar un pico
+    window_seconds: float = 1.0
+    warmup_seconds: float = 20.0
+
+
+class CadenceCfg(BaseModel):
+    enabled: bool = True
+    words_per_second: float = 4.5
+    window_seconds: float = 4.0
+
+
+class KeywordsCfg(BaseModel):
+    enabled: bool = True
+    laughter: bool = True                # "jajaja" en la transcripción cuenta como risa
+    phrases: list[str] = ["mira esto", "increíble", "ojo con esto", "no puede ser", "qué locura"]
+
+
+class TriggersCfg(BaseModel):
+    cooldown_seconds: float = 40.0
+    auto_clip_seconds: int = 30
+    post_roll_seconds: float = 8.0       # cuánto después del disparo se sigue grabando
+    energy: EnergyCfg = EnergyCfg()
+    cadence: CadenceCfg = CadenceCfg()
+    keywords: KeywordsCfg = KeywordsCfg()
+
+
+class ServerCfg(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = 8000
+
+
 class Config(BaseModel):
+    compute: ComputeCfg = ComputeCfg()
+    transcribe: TranscribeCfg = TranscribeCfg()
+    triggers: TriggersCfg = TriggersCfg()
+    server: ServerCfg = ServerCfg()
     source: SourceCfg = SourceCfg()
     buffer: BufferCfg = BufferCfg()
     clip: ClipCfg = ClipCfg()
