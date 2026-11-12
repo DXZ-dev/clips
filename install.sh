@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # clipper — instalador para Linux (Debian/Ubuntu probado; Fedora y Arch en "mejor esfuerzo").
 #
-#   Desde GitHub (clona el repo, instala y verifica):
-#     curl -fsSL https://raw.githubusercontent.com/dxz-dev/clips/main/install.sh | bash
-#     curl -fsSL https://raw.githubusercontent.com/dxz-dev/clips/main/install.sh | bash -s -- --yes --service
+#   Desde GitHub (clona el repo, instala y verifica). El repositorio es PRIVADO: hace falta un token
+#   (GITHUB_TOKEN, con permiso de lectura de "Contents" en DXZ-dev/clips):
+#     export GITHUB_TOKEN=github_pat_xxx
+#     curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/DXZ-dev/clips/RAMA/install.sh | bash -s -- --yes
+#   (RAMA = la rama por defecto del repo; el instalador clona esa misma rama salvo que uses --branch)
 #   Desde un clon local:
-#     ./install.sh
-#
-#   Repo privado: exporta GITHUB_TOKEN (con permiso de lectura del repo) antes de ejecutar.
+#     git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh
 #   Es idempotente: volver a ejecutarlo actualiza el código y las dependencias.
 set -Eeuo pipefail
 
 # ----------------------------------------------------------------------------- valores por defecto
-REPO_URL="${CLIPPER_REPO:-https://github.com/dxz-dev/clips.git}"
-BRANCH="${CLIPPER_BRANCH:-main}"
+REPO_URL="${CLIPPER_REPO:-https://github.com/DXZ-dev/clips.git}"
+BRANCH="${CLIPPER_BRANCH:-}"          # vacío = rama por defecto del repositorio
 INSTALL_DIR="${CLIPPER_DIR:-$HOME/.local/share/clipper}"
 BIN_DIR="${CLIPPER_BIN_DIR:-$HOME/.local/bin}"
 WHISPER="small"
@@ -28,8 +28,8 @@ Uso: install.sh [opciones]
 
   -y, --yes              No preguntar (instala dependencias del sistema con sudo si hace falta)
       --dir DIR          Dónde instalar al ejecutar desde GitHub   (def. ~/.local/share/clipper)
-      --branch RAMA      Rama de GitHub a instalar                 (def. main)
-      --repo URL         Repositorio git                           (def. https://github.com/dxz-dev/clips.git)
+      --branch RAMA      Rama de GitHub a instalar                 (def. la rama por defecto del repo)
+      --repo URL         Repositorio git                           (def. https://github.com/DXZ-dev/clips.git)
       --port N           Puerto del panel                          (def. 7848)
       --python RUTA      Intérprete de Python a usar               (def. 3.12 > 3.11 > 3.13)
       --whisper MODELO   Modelo a descargar: tiny|base|small|medium|large-v3   (def. small)
@@ -175,7 +175,7 @@ git_env() {
 }
 
 fetch_code() {
-  step "Código desde GitHub ($REPO_URL, rama $BRANCH)"
+  step "Código desde GitHub ($REPO_URL${BRANCH:+, rama $BRANCH})"
   need_cmd git || die "git no está instalado."
   git_env
   mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -183,15 +183,18 @@ fetch_code() {
     if [ -n "$(git -C "$INSTALL_DIR" status --porcelain --untracked-files=no)" ]; then
       warn "Hay cambios locales en $INSTALL_DIR: no se actualiza el código (se conservan)."
     else
-      run git -C "$INSTALL_DIR" fetch --depth 1 origin "$BRANCH" || die "No se pudo leer la rama '$BRANCH'. ¿Existe? ¿Repo privado sin GITHUB_TOKEN?"
-      run git -C "$INSTALL_DIR" checkout -q -B "$BRANCH" FETCH_HEAD
+      local br="${BRANCH:-$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD)}"
+      run git -C "$INSTALL_DIR" fetch --depth 1 origin "$br" || die "No se pudo leer la rama '$br'. ¿Existe? ¿Falta GITHUB_TOKEN (repo privado)?"
+      run git -C "$INSTALL_DIR" checkout -q -B "$br" FETCH_HEAD
       ok "Actualizado a $(git -C "$INSTALL_DIR" rev-parse --short HEAD)"
     fi
   elif [ -e "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
     die "$INSTALL_DIR existe y no es una instalación de clipper (usa --dir otra_ruta)."
   else
-    run git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR" \
-      || die "No se pudo clonar. Si el repositorio es privado: export GITHUB_TOKEN=... y vuelve a ejecutar. Si la rama no existe usa --branch."
+    local clone=(git clone --depth 1)
+    [ -n "$BRANCH" ] && clone+=(--branch "$BRANCH")
+    run "${clone[@]}" "$REPO_URL" "$INSTALL_DIR" \
+      || die "No se pudo clonar. El repositorio es privado: export GITHUB_TOKEN=... (permiso de lectura) y vuelve a ejecutar. Si la rama no existe, usa --branch."
     ok "Clonado en $INSTALL_DIR"
   fi
 }
@@ -436,7 +439,8 @@ if [ "$FROM_CLONE" = 0 ]; then
   fetch_code
   # Continúa con el instalador del repo descargado (misma versión que el código)
   if [ "$DRY" != 1 ]; then
-    args=(--dir "$INSTALL_DIR" --branch "$BRANCH" --repo "$REPO_URL" --whisper "$WHISPER" --bin-dir "$BIN_DIR")
+    args=(--dir "$INSTALL_DIR" --repo "$REPO_URL" --whisper "$WHISPER" --bin-dir "$BIN_DIR")
+    [ -n "$BRANCH" ] && args+=(--branch "$BRANCH")
     [ "$GPU" = yes ] && args+=(--gpu)
     [ "$GPU" = no ] && args+=(--cpu)
     [ -n "$PORT" ] && args+=(--port "$PORT")

@@ -8,3 +8,4 @@ settings.local.yaml
 secrets.local.yaml
 tokens.local.json
 data/
+*.egg-info/
