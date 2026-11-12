@@ -1,0 +1,61 @@
+# Configuración de clipper. Todas las rutas relativas se resuelven desde la carpeta del proyecto.
+
+source:
+  type: file            # file | rtmp | hls | streamlink | ytdlp
+  # rtmp : rtmp://0.0.0.0:1935/live/obs   (ffmpeg escucha; en OBS: Servicio=Personalizado, Servidor=rtmp://IP:1935/live, Clave=obs)
+  # hls  : http://localhost:8080/live/obs.m3u8
+  # streamlink / ytdlp : https://www.twitch.tv/canal  o  https://www.youtube.com/watch?v=...
+  url: ""
+  rtmp_listen: true     # true => ffmpeg actúa de servidor RTMP (-listen 1)
+  streamlink_quality: best
+  file: ./samples/test.mp4   # modo prueba: simula un directo a velocidad real (-re)
+  file_loop: true
+  file_follow: false    # true => archivo que se está grabando (usa .ts/.mkv/.flv; mp4 no es legible mientras se escribe)
+
+buffer:
+  dir: /tmp/clip_buffer
+  segment_seconds: 5
+  window_seconds: 90    # el buffer conserva ~esto; lo más antiguo se borra solo
+  reencode: false       # false = -c copy (sin CPU, cortes en keyframes). true = GOP fijo, segmentos exactos
+
+clip:
+  default_seconds: 30
+  duration_options: [15, 30, 60]
+  output_dir: ./output_clips
+
+reframe:
+  width: 1080
+  height: 1920
+  detector: auto        # auto | mediapipe | haar | none (none = solo centro de masa del movimiento)
+  mediapipe_model: ./models/blaze_face_short_range.tflite
+  analysis_fps: 6       # fotogramas/s analizados para el seguimiento
+  analysis_width: 480
+  smoothing:
+    ema_alpha: 0.18     # 0..1, menor = cámara más lenta/suave
+    deadzone: 0.04      # fracción del ancho del recorte donde la cámara no se mueve
+    max_speed: 0.9      # velocidad máx. de cámara, en anchos de recorte por segundo
+    lost_hold_seconds: 1.5   # tiempo que mantiene el último objetivo si no ve a nadie
+  speaker:
+    switch_ratio: 1.6   # un rostro debe mover la boca 1.6x más que el actual para robarle el foco
+    switch_frames: 3
+    audio_gate_db: -45  # sin voz por debajo de este nivel no se cambia de hablante
+
+subtitles:
+  enabled: true
+  font: DejaVu Sans
+  font_size: 84
+  uppercase: true
+  primary_color: "#FFFFFF"
+  highlight_color: "#FFE600"   # palabra activa (amarillo; prueba #00FF66 para verde)
+  outline_color: "#000000"
+  outline: 9
+  position: lower_third        # center | lower_third | bottom
+  max_words_per_line: 3
+  max_lines: 2
+
+render:
+  encoder: auto         # auto | h264_nvenc | hevc_nvenc | libx264
+  preset_cpu: veryfast
+  crf: 21
+  nvenc_cq: 23
+  audio_bitrate: 160k
