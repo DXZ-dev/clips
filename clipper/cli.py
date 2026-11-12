@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -28,6 +29,8 @@ def main(argv=None) -> int:
     sub.add_parser("run", help="Motor completo en terminal: ingesta + disparadores + atajos de teclado")
     sv = sub.add_parser("serve", help="Motor completo + panel web")
     sv.add_argument("--host"); sv.add_argument("--port", type=int)
+    dm = sub.add_parser("download-model", help="Descarga UNA VEZ un modelo Whisper a ./models (única operación con red)")
+    dm.add_argument("name", nargs="?", default="small")
     tr = sub.add_parser("transcribe", help="Transcribe un archivo a JSON de palabras (para --words)")
     tr.add_argument("input"); tr.add_argument("-o", "--out")
     f = sub.add_parser("reframe", help="Convierte un archivo a 9:16 con tracking y subtítulos")
@@ -37,6 +40,8 @@ def main(argv=None) -> int:
     f.add_argument("-s", "--last-seconds", type=float)
     a = ap.parse_args(argv)
 
+    if a.cmd != "download-model":       # ejecución normal: cero tráfico hacia Hugging Face
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config(a.config)
@@ -60,6 +65,12 @@ def main(argv=None) -> int:
     elif a.cmd == "reframe":
         words = load_words(a.words) if a.words else None
         print(clip_from_file(cfg, a.input, Path(a.out) if a.out else None, words, a.last_seconds))
+    elif a.cmd == "download-model":
+        from faster_whisper.utils import download_model
+        dest = cfg.path(f"models/whisper-{a.name}")
+        print("Descargando (necesita internet solo ahora)…")
+        download_model(a.name, output_dir=str(dest))
+        print(f"Listo: {dest}. A partir de ahora funciona sin red.")
     elif a.cmd == "run":
         _run_terminal(cfg)
     elif a.cmd == "serve":

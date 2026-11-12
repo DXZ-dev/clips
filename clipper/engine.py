@@ -85,6 +85,32 @@ class Engine:
         self.event("system", f"dispositivo: {device} -> whisper en {info['whisper_device']}, encoder {info['encoder']}")
         return info
 
+    def apply_settings(self, patch: dict) -> dict:
+        """Aplica ajustes del panel en caliente y reacciona a lo que haya cambiado."""
+        from .settings import apply_update, public_view
+        changed = apply_update(self.cfg, patch)
+        if "triggers" in changed:
+            self.keywords = KeywordMatcher(self.cfg)
+        if "transcribe" in changed or "compute" in changed:
+            if self.cfg.transcribe.enabled:
+                if self.transcriber is None:
+                    self.transcriber = LiveTranscriber(self.cfg, on_words=self._on_words)
+                else:
+                    self.transcriber.reload()
+                self.transcriber_error = None
+            else:
+                self.transcriber, self.transcriber_ready = None, False
+        if "source" in changed or "buffer" in changed:
+            self.buffer.stop()
+            self.buffer = RollingBuffer(self.cfg)
+            self.reader = self.buffer.reader
+            self._seen.clear()
+            self._last_end = -1.0
+            self.buffer.start()
+        if changed:
+            self.event("system", "ajustes aplicados: " + ", ".join(changed))
+        return {"changed": changed, "settings": public_view(self.cfg)}
+
     def compute_info(self) -> dict:
         return {"requested": self.cfg.compute.device,
                 "whisper_device": resolve_device(self.cfg.compute.device),
@@ -148,15 +174,18 @@ class Engine:
                 self._seen = {s.path.name for s in segs}
 
     def _transcribe_loop(self) -> None:
-        if not self.transcriber:
-            return
         while not self._stop.is_set():
+            if not self.transcriber:                   # desactivada (puede activarse desde Ajustes)
+                self._stop.wait(1)
+                continue
             if not self.transcriber.loaded:            # primera carga o cambio de dispositivo
                 self.transcriber_ready = False
                 try:
                     self.transcriber.load()
                     self.transcriber_ready, self.transcriber_error = True, None
-                    self.event("system", f"Whisper '{self.cfg.transcribe.model}' listo en {self.transcriber.device}")
+                    tc = self.cfg.transcribe
+                    self.event("system", "transcripción vía API: " + tc.api.base_url if tc.provider == "api"
+                               else f"Whisper '{tc.model}' listo en {self.transcriber.device}")
                 except Exception as e:  # noqa: BLE001
                     self.transcriber_error = f"{type(e).__name__}: {e}"
                     self.event("error", f"no se pudo cargar Whisper: {self.transcriber_error}")

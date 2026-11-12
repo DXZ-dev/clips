@@ -4,3 +4,5 @@ __pycache__/
 models/
 output_clips/
 .pytest_cache/
+settings.local.yaml
+secrets.local.yaml

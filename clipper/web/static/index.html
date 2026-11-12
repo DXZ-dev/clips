@@ -22,7 +22,11 @@ button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:8px;flex-wra
 #clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
 .clip video{width:100%;aspect-ratio:9/16;background:#000;border-radius:8px}.clip small{display:block;color:var(--mut)}
 .clip a,.clip button{font-size:12px;padding:4px 8px;text-decoration:none;color:var(--tx)}
-</style></head>
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+fieldset{border:1px solid var(--line);border-radius:10px;padding:10px;margin:0}legend{color:var(--mut);font-size:12px;padding:0 6px}
+label{display:block;margin:6px 0;font-size:13px;color:var(--mut)}label.chk{color:var(--tx)}
+input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width:100%;margin-top:3px;background:#10131a;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+.warn{font-size:12px;color:#ffb86b;margin-top:6px}</style></head>
 <body><main>
 <h1>✂️ clipper <span class="mut" id="src"></span></h1>
 <div class="grid">
@@ -44,6 +48,48 @@ button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:8px;flex-wra
   <h2 style="margin-top:14px">Última transcripción</h2><div id="tr">—</div>
  </section>
 </div>
+<details class="card" style="margin-top:12px" id="settings"><summary style="cursor:pointer;font-weight:600">⚙️ Ajustes</summary>
+ <p class="mut" style="font-size:12px">Todo funciona en local. Solo hay tráfico de red si eliges aquí una fuente en vivo remota o el proveedor de transcripción «API».</p>
+ <div class="form">
+  <fieldset><legend>Fuente</legend>
+   <label>Tipo <select id="s_type"><option>file</option><option>rtmp</option><option>hls</option><option>streamlink</option><option>ytdlp</option></select></label>
+   <label>URL <input id="s_url" placeholder="rtmp://0.0.0.0:1935/live/obs · https://twitch.tv/canal"></label>
+   <label>Archivo (modo prueba) <input id="s_file"></label>
+   <label class="chk"><input type="checkbox" id="s_listen"> RTMP: escuchar (OBS se conecta a esta máquina)</label>
+  </fieldset>
+  <fieldset><legend>Transcripción</legend>
+   <label class="chk"><input type="checkbox" id="t_enabled"> Activada</label>
+   <label>Proveedor <select id="t_provider"><option value="local">Local (faster-whisper, sin red)</option><option value="api">API compatible con OpenAI</option></select></label>
+   <label>Modelo local <input id="t_model" placeholder="small"></label>
+   <label>Idioma <input id="t_lang" placeholder="es (vacío = autodetectar)"></label>
+   <div id="apibox">
+    <label>URL base de la API <input id="a_url" placeholder="http://localhost:8080/v1"></label>
+    <label>Modelo de la API <input id="a_model" placeholder="whisper-1"></label>
+    <label>Clave <input id="a_key" type="password" autocomplete="off" placeholder=""></label>
+    <label class="chk"><input type="checkbox" id="a_clear"> Borrar la clave guardada</label>
+    <div class="warn">⚠️ Con «API» el audio del directo se envía a esa URL. Usa un servidor tuyo si quieres que no salga de tu red. La clave se guarda solo en este equipo (secrets.local.yaml) y no se vuelve a mostrar.</div>
+   </div>
+  </fieldset>
+  <fieldset><legend>Disparadores</legend>
+   <label>Palabras clave (una por línea) <textarea id="k_phr" rows="4"></textarea></label>
+   <label class="chk"><input type="checkbox" id="k_on"> Palabras clave</label>
+   <label class="chk"><input type="checkbox" id="k_laugh"> Risas («jajaja»)</label>
+   <label class="chk"><input type="checkbox" id="e_on"> Picos de energía</label>
+   <label>Subida mínima (dB) <input id="e_db" type="number" step="1"></label>
+   <label class="chk"><input type="checkbox" id="c_on"> Cadencia rápida</label>
+   <label>Enfriamiento (s) <input id="g_cool" type="number"></label>
+   <label>Duración clip automático (s) <input id="g_auto" type="number"></label>
+   <label>Tiempo posterior al disparo (s) <input id="g_post" type="number"></label>
+  </fieldset>
+  <fieldset><legend>Subtítulos</legend>
+   <label class="chk"><input type="checkbox" id="u_on"> Activados</label>
+   <label>Color de la palabra activa <input id="u_hi" type="color"></label>
+   <label>Tamaño de letra <input id="u_size" type="number"></label>
+   <label>Posición <select id="u_pos"><option value="center">Centro</option><option value="lower_third">Tercio inferior</option><option value="bottom">Abajo</option></select></label>
+  </fieldset>
+ </div>
+ <div class="row" style="margin-top:10px"><button id="save" class="sel">Guardar y aplicar</button><span id="smsg" class="mut"></span></div>
+</details>
 <section class="card" style="margin-top:12px"><h2>Eventos</h2><div id="events"></div></section>
 <section class="card" style="margin-top:12px"><h2>Clips generados</h2><div id="clips"></div></section>
 </main>
@@ -82,5 +128,30 @@ async function go(){
 $("go").onclick=go;
 document.addEventListener("keydown",e=>{if(e.key.toLowerCase()==="c"&&!e.ctrlKey&&!e.metaKey&&!e.target.matches("input,textarea"))go()});
 document.querySelectorAll("[data-dev]").forEach(b=>b.onclick=async()=>{try{await api("/api/device",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device:b.dataset.dev})});status()}catch(e){$("msg").textContent=e.message}});
+const V=(id,v)=>{const e=$(id);e.type==="checkbox"?e.checked=!!v:e.value=v??""};
+let cur=null;
+async function loadSettings(){cur=await api("/api/settings");const c=cur;
+ V("s_type",c.source.type);V("s_url",c.source.url);V("s_file",c.source.file);V("s_listen",c.source.rtmp_listen);
+ V("t_enabled",c.transcribe.enabled);V("t_provider",c.transcribe.provider);V("t_model",c.transcribe.model);V("t_lang",c.transcribe.language);
+ V("a_url",c.transcribe.api.base_url);V("a_model",c.transcribe.api.model);$("a_key").value="";$("a_key").placeholder=c.transcribe.api.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave)";
+ V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
+ V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
+ V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
+ V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
+$("t_provider").onchange=showApi;
+$("save").onclick=async()=>{
+ const api_={base_url:$("a_url").value.trim(),model:$("a_model").value.trim()||"whisper-1"};
+ if($("a_key").value)api_.api_key=$("a_key").value;if($("a_clear").checked)api_.clear_api_key=true;
+ const patch={source:{type:$("s_type").value,url:$("s_url").value.trim(),file:$("s_file").value.trim(),rtmp_listen:$("s_listen").checked},
+  transcribe:{enabled:$("t_enabled").checked,provider:$("t_provider").value,model:$("t_model").value.trim()||"small",language:$("t_lang").value.trim()||null,api:api_},
+  triggers:{cooldown_seconds:+$("g_cool").value,auto_clip_seconds:+$("g_auto").value,post_roll_seconds:+$("g_post").value,
+   energy:{enabled:$("e_on").checked,spike_db:+$("e_db").value},cadence:{enabled:$("c_on").checked},
+   keywords:{enabled:$("k_on").checked,laughter:$("k_laugh").checked,phrases:$("k_phr").value.split("\n").map(x=>x.trim()).filter(Boolean)}},
+  subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
+ try{const r=await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
+  $("smsg").textContent=r.changed.length?"Aplicado: "+r.changed.join(", "):"Sin cambios";$("a_clear").checked=false;loadSettings()}
+ catch(e){$("smsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};
+$("settings").addEventListener("toggle",()=>{if($("settings").open)loadSettings()});
 status();clips();setInterval(status,1500);setInterval(clips,4000);
 </script></body></html>

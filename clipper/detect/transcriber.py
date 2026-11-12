@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -10,6 +11,7 @@ import numpy as np
 from ..config import Config
 from ..ffutil import resolve_device
 from ..subtitles import Word
+from .api_transcriber import transcribe_api
 from .vad import SR, SpeechDetector
 
 log = logging.getLogger("clipper.transcriber")
@@ -51,7 +53,18 @@ class LiveTranscriber:
         self._model = None
         self._lock = threading.Lock()
 
+    def _model_ref(self) -> str:
+        """Carpeta local si existe (./models/whisper-<nombre> o una ruta), si no el nombre (caché local)."""
+        name = self.tc.model
+        for cand in (Path(name).expanduser(), self.cfg.path(f"models/whisper-{name}")):
+            if cand.is_dir():
+                return str(cand)
+        return name
+
     def load(self) -> None:
+        if self.tc.provider == "api":
+            self._model = "api"                     # no hay modelo que cargar
+            return
         if self._model is not None:
             return
         from faster_whisper import WhisperModel
@@ -60,14 +73,27 @@ class LiveTranscriber:
             ct = "float16" if self.device == "cuda" else "int8"
         log.info("Cargando faster-whisper '%s' en %s (%s), VAD=%s", self.tc.model, self.device, ct,
                  self.vad.backend)
-        self._model = WhisperModel(self.tc.model, device=self.device, compute_type=ct)
+        try:
+            self._model = WhisperModel(self._model_ref(), device=self.device, compute_type=ct,
+                                       local_files_only=not self.tc.allow_downloads)
+        except Exception as e:  # noqa: BLE001
+            if not self.tc.allow_downloads:
+                raise RuntimeError(
+                    f"Modelo '{self.tc.model}' no encontrado en local y las descargas están desactivadas. "
+                    f"Descárgalo una vez con: python -m clipper download-model {self.tc.model}  "
+                    f"(o usa transcribe.provider: api). Detalle: {e}") from e
+            raise
+
+    def reload(self) -> None:
+        """Fuerza recargar el modelo/proveedor (tras cambiar ajustes)."""
+        with self._lock:
+            self.device = resolve_device(self.cfg.compute.device)
+            self._model = None
 
     def set_device(self, device: str) -> None:
         """Cambia GPU/CPU en caliente: el modelo se vuelve a cargar en el siguiente uso."""
-        with self._lock:
-            self.cfg.compute.device = device
-            self.device = resolve_device(device)
-            self._model = None
+        self.cfg.compute.device = device
+        self.reload()
 
     @property
     def loaded(self) -> bool:
@@ -87,6 +113,8 @@ class LiveTranscriber:
 
     def transcribe(self, audio: np.ndarray, t0: float = 0.0, vad_filter: bool = False) -> list[Word]:
         self.load()
+        if self.tc.provider == "api":
+            return transcribe_api(self.tc.api, audio, t0, self.tc.language)
         segs, _ = self._model.transcribe(
             audio, language=self.tc.language, word_timestamps=True, vad_filter=vad_filter,
             beam_size=self.tc.beam_size, condition_on_previous_text=False)

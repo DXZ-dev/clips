@@ -22,6 +22,13 @@ curl -X POST localhost:8000/clip -H 'content-type: application/json' -d '{"secon
 El panel permite lanzar clips (15/30/60 s, tecla **C**), ver el buffer, la transcripción y los eventos,
 previsualizar/descargar/borrar clips y **cambiar entre GPU NVIDIA y solo CPU en caliente**.
 
+## Privacidad: 100 % local por defecto
+- En ejecución **no se contacta ningún servidor externo**: Whisper corre en tu máquina con `local_files_only` (`transcribe.allow_downloads: false`) y `HF_HUB_OFFLINE=1`; el panel no carga CDNs. Verificado transcribiendo con la red bloqueada.
+- La única operación con red es **descargar el modelo una vez**, y es explícita: `python -m clipper download-model small` (guarda en `./models/whisper-small`). El modelo de rostros también se baja una vez con `scripts/download_models.sh`.
+- Si prefieres un servicio de transcripción por API, se configura **desde el panel → ⚙️ Ajustes → Transcripción → API** (URL base, modelo y clave; cualquier servicio compatible con OpenAI `/audio/transcriptions`, incluido uno tuyo en `localhost`). Con «API» el audio del directo sale hacia esa URL. La clave se guarda en `secrets.local.yaml` (permisos 600, fuera de git; también vale `CLIPPER_API_KEY`) y la API del panel nunca la devuelve.
+- Los ajustes del panel se guardan en `settings.local.yaml` y se aplican en caliente (cambiar la fuente reinicia la ingesta y vacía el buffer). `buffer.dir` y `clip.output_dir` solo se editan en `config.yaml`.
+- El panel rechaza peticiones con `Host` no local u `Origin` ajeno (anti DNS-rebinding/CSRF). Si lo sirves en otro nombre, añádelo a `server.allowed_hosts`.
+
 ## GPU o CPU (`compute.device` en config.yaml, `--device`, o el panel)
 | valor | Whisper | Encoder |
 |---|---|---|

@@ -166,8 +166,13 @@ class RollingBuffer:
         return cmd
 
     def _wipe(self) -> None:
-        shutil.rmtree(self.dir, ignore_errors=True)
+        """Borra solo lo que creamos nosotros (segmentos, lista, clips temporales), nunca el directorio entero."""
         self.dir.mkdir(parents=True, exist_ok=True)
+        for f in self.dir.glob("seg_*.ts"):
+            f.unlink(missing_ok=True)
+        (self.dir / LIST_NAME).unlink(missing_ok=True)
+        for d in self.dir.glob("clip_*"):
+            shutil.rmtree(d, ignore_errors=True)
 
     def _ingest_loop(self) -> None:
         plan = build_plan(self.cfg)

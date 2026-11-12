@@ -56,7 +56,7 @@ def _client(tmp_path):
     cfg.transcribe.enabled = False
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "a.mp4").write_bytes(b"x")
-    return TestClient(create_app(Engine(cfg), manage_engine=False)), tmp_path
+    return TestClient(create_app(Engine(cfg), manage_engine=False), base_url="http://localhost"), tmp_path
 
 
 def test_api_status_clips_and_errors(tmp_path):

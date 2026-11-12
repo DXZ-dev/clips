@@ -4,8 +4,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from urllib.parse import urlparse
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
 from pydantic import BaseModel
 
 from ..engine import Engine
@@ -31,6 +34,21 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
             engine.stop()
 
     app = FastAPI(title="clipper", lifespan=lifespan)
+    loopback = {"localhost", "127.0.0.1", "::1"}
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        """Anti DNS-rebinding / CSRF: el panel puede cambiar ajustes, así que solo acepta peticiones
+        cuyo Host sea local (o esté en server.allowed_hosts) y, si traen Origin, que sea el mismo Host."""
+        host_h = request.headers.get("host", "")
+        host = urlparse("//" + host_h).hostname or ""
+        if host not in loopback | set(engine.cfg.server.allowed_hosts):
+            return JSONResponse({"detail": "host no permitido"}, status_code=403)
+        origin = request.headers.get("origin")
+        if request.method not in ("GET", "HEAD") and origin and urlparse(origin).netloc != host_h:
+            return JSONResponse({"detail": "origen no permitido"}, status_code=403)
+        return await call_next(request)
+
     clips_dir = lambda: engine.cfg.path(engine.cfg.clip.output_dir)  # noqa: E731
 
     @app.get("/")
@@ -66,6 +84,22 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
     def device(req: DeviceRequest):
         try:
             return engine.set_device(req.device)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    @app.get("/api/settings")
+    def get_settings():
+        from ..settings import public_view
+        return public_view(engine.cfg)
+
+    @app.put("/api/settings")
+    def put_settings(patch: dict):
+        """Actualización parcial. La clave de API solo se acepta aquí; nunca se devuelve."""
+        try:
+            return engine.apply_settings(patch)
+        except ValidationError as e:
+            msgs = [f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()]
+            raise HTTPException(422, "; ".join(msgs))
         except ValueError as e:
             raise HTTPException(422, str(e))
 

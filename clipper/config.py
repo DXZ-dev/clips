@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -18,6 +18,23 @@ class SourceCfg(BaseModel):
     file: str = "./samples/test.mp4"
     file_loop: bool = True
     file_follow: bool = False
+
+
+    @field_validator("url")
+    @classmethod
+    def _no_flag_injection(cls, v: str) -> str:
+        v = v.strip()
+        if v.startswith("-"):
+            raise ValueError("la URL no puede empezar por '-'")
+        return v
+
+    @model_validator(mode="after")
+    def _scheme(self):
+        ok = {"rtmp": ("rtmp://", "rtmps://"), "hls": ("http://", "https://"),
+              "streamlink": ("http://", "https://"), "ytdlp": ("http://", "https://")}
+        if self.url and self.type in ok and not self.url.startswith(ok[self.type]):
+            raise ValueError(f"para type={self.type} la URL debe empezar por {' o '.join(ok[self.type])}")
+        return self
 
 
 class BufferCfg(BaseModel):
@@ -90,8 +107,26 @@ class VadCfg(BaseModel):
     max_chunk_seconds: float = 20.0
 
 
+class ApiCfg(BaseModel):
+    """Servicio de transcripción compatible con OpenAI (/audio/transcriptions). Lo eliges tú."""
+    base_url: str = ""                   # p. ej. http://localhost:8080/v1  (un servidor tuyo) u otro de tu elección
+    model: str = "whisper-1"
+    api_key: str = Field("", exclude=True, repr=False)   # nunca se guarda en config.yaml ni se devuelve por la API
+
+    @field_validator("base_url")
+    @classmethod
+    def _http(cls, v: str) -> str:
+        v = v.strip().rstrip("/")
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("base_url debe empezar por http:// o https://")
+        return v
+
+
 class TranscribeCfg(BaseModel):
     enabled: bool = True
+    provider: Literal["local", "api"] = "local"   # local = faster-whisper en tu máquina (sin red)
+    allow_downloads: bool = False        # False = jamás contacta Hugging Face; usa solo modelos ya descargados
+    api: ApiCfg = ApiCfg()
     model: str = "small"                 # tiny | base | small | medium | large-v3 ...
     language: str | None = "es"          # None = autodetectar
     compute_type: str = "auto"           # auto => float16 en GPU, int8 en CPU
@@ -131,6 +166,7 @@ class TriggersCfg(BaseModel):
 class ServerCfg(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8000
+    allowed_hosts: list[str] = []        # nombres extra aceptados en la cabecera Host (anti DNS-rebinding)
 
 
 class Config(BaseModel):
@@ -151,7 +187,29 @@ class Config(BaseModel):
         return q if q.is_absolute() else (ROOT / q).resolve()
 
 
+SETTINGS_FILE = ROOT / "settings.local.yaml"   # cambios hechos desde el panel (se aplican sobre config.yaml)
+SECRETS_FILE = ROOT / "secrets.local.yaml"     # claves de API (chmod 600, fuera de git)
+
+
+def deep_merge(base: dict, patch: dict) -> dict:
+    out = dict(base)
+    for k, v in patch.items():
+        out[k] = deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
 def load_config(path: str | Path | None = None) -> Config:
+    """config.yaml (+ settings.local.yaml + secrets.local.yaml cuando se usa el config por defecto)."""
+    default = path is None
     path = Path(path) if path else ROOT / "config.yaml"
-    data = yaml.safe_load(path.read_text()) if path.exists() else {}
-    return Config.model_validate(data or {})
+    data = (yaml.safe_load(path.read_text()) if path.exists() else {}) or {}
+    secrets = {}
+    if default:
+        if SETTINGS_FILE.exists():
+            data = deep_merge(data, yaml.safe_load(SETTINGS_FILE.read_text()) or {})
+        if SECRETS_FILE.exists():
+            secrets = yaml.safe_load(SECRETS_FILE.read_text()) or {}
+    cfg = Config.model_validate(data)
+    import os
+    cfg.transcribe.api.api_key = os.environ.get("CLIPPER_API_KEY") or secrets.get("transcribe_api_key", "")
+    return cfg
