@@ -94,7 +94,7 @@ def test_oauth_authorize_url_and_exchange(tmp_path):
     tt = TikTok(cfg, ts, client(h))
     url = tt.authorize_url("st")
     assert "client_key=ck" in url and "state=st" in url and "scope=video.publish" in url
-    assert tt.redirect_uri() == "http://localhost:8000/oauth/tiktok/callback"
+    assert tt.redirect_uri() == "http://localhost:7848/oauth/tiktok/callback"
     tt.exchange_code("CODE")
     assert ts.get("tiktok")["refresh_token"] == "RT" and tt.connected()
     assert oct(ts.path.stat().st_mode & 0o777) == "0o600"

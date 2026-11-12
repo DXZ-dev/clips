@@ -14,10 +14,10 @@ Python 3.13 funciona para el núcleo, pero torch/mediapipe/faster-whisper (Fase 
 
 ## Arranque rápido
 ```bash
-python -m clipper serve                  # motor + panel en http://localhost:8000
+python -m clipper serve                  # motor + panel en http://localhost:7848
 python -m clipper serve --device cpu     # solo CPU   (también: --device cuda | auto)
 python -m clipper run                    # sin web: Enter/c = clip, 15|30|60 = clip de N s, q = salir
-curl -X POST localhost:8000/clip -H 'content-type: application/json' -d '{"seconds":30}'   # trigger manual HTTP
+curl -X POST localhost:7848/clip -H 'content-type: application/json' -d '{"seconds":30}'   # trigger manual HTTP
 ```
 El panel permite lanzar clips (15/30/60 s, tecla **C**), ver el buffer, la transcripción y los eventos,
 previsualizar/descargar/borrar clips y **cambiar entre GPU NVIDIA y solo CPU en caliente**.

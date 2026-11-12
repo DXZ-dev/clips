@@ -96,4 +96,4 @@ triggers:
 
 server:
   host: 127.0.0.1           # no expongas el panel a la red: no tiene autenticación
-  port: 8000
+  port: 7848

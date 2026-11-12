@@ -254,7 +254,7 @@ class PublishCfg(BaseModel):
 
 class ServerCfg(BaseModel):
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = 7848
     allowed_hosts: list[str] = []        # nombres extra aceptados en la cabecera Host (anti DNS-rebinding)
 
 
