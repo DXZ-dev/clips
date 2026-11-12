@@ -81,6 +81,14 @@ input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width
    <label>Duración clip automático (s) <input id="g_auto" type="number"></label>
    <label>Tiempo posterior al disparo (s) <input id="g_post" type="number"></label>
   </fieldset>
+  <fieldset><legend>Diseño del clip</legend>
+   <label>Diseño por defecto <select id="l_mode"><option value="auto">Automático (sigue al hablante)</option><option value="split">Cámara arriba + gameplay</option><option value="fit">Completo con fondo difuminado</option></select></label>
+   <label>Cámara en <select id="l_pos"><option value="top">Arriba</option><option value="bottom">Abajo</option></select></label>
+   <label>Altura de la cámara (%) <input id="l_h" type="number" min="15" max="60"></label>
+   <label>Gameplay <select id="l_gp"><option value="contain">Completo</option><option value="cover">Recortado (sigue la acción)</option></select></label>
+   <label class="chk"><input type="checkbox" id="l_keep"> Guardar la fuente de cada clip para poder editarlo</label>
+   <div class="mut" style="font-size:12px">La cámara se autodetecta en cada clip; si falla, ajústala a mano en el editor. Cada fuente guardada ocupa ~10-30 MB.</div>
+  </fieldset>
   <fieldset id="pubset"><legend>Publicación</legend>
    <label class="chk"><input type="checkbox" id="p_on"> Activar publicación en redes</label>
    <label class="chk"><input type="checkbox" id="p_dry"> Simulacro (no toca ninguna red social)</label>
@@ -132,11 +140,12 @@ async function status(){
 }
 async function clips(){
  let c;try{c=await api("/api/clips")}catch{return}
- const sig=JSON.stringify(c.map(x=>x.name));if(sig===lastClips)return;lastClips=sig;
- $("clips").innerHTML=c.map(x=>`<div class="clip"><video controls preload="metadata" src="/clips/${encodeURIComponent(x.name)}"></video>
- <small>${esc(x.reason||"")} · ${x.duration??"?"} s · ${x.size_mb} MB</small><small>${esc(x.detail||"")}</small>
- <div class="row"><a href="/clips/${encodeURIComponent(x.name)}?download=true"><button>Descargar</button></a><button data-del="${esc(x.name)}">Borrar</button></div>
+ const sig=JSON.stringify(c.map(x=>[x.name,x.mtime,x.editable]));if(sig===lastClips)return;lastClips=sig;
+ $("clips").innerHTML=c.map(x=>`<div class="clip"><video controls preload="metadata" src="/clips/${encodeURIComponent(x.name)}?v=${Math.floor(x.mtime)}"></video>
+ <small>${esc(x.reason||"")} · ${x.duration??"?"} s · ${x.size_mb} MB${x.layout?" · "+esc(x.layout):""}${x.edited?" · editado":""}</small>${x.warning?`<small class="err">${esc(x.warning)}</small>`:""}<small>${esc(x.detail||"")}</small>
+ <div class="row"><a href="/clips/${encodeURIComponent(x.name)}?download=true"><button>Descargar</button></a><button data-del="${esc(x.name)}">Borrar</button>${x.editable?`<button class="sel" data-edit="${esc(x.name)}">✂️ Editar</button>`:""}</div>
  <div class="row" style="margin-top:4px">${(window.pubDests||[]).map(d=>`<button data-pub="${d[0]}" data-clip="${esc(x.name)}">→ ${esc(d[1])}</button>`).join("")}</div></div>`).join("")||'<span class="mut">todavía no hay clips</span>';
+ document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEditor(b.dataset.edit));
  document.querySelectorAll("[data-pub]").forEach(b=>b.onclick=async()=>{try{await api("/api/publish/enqueue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({clip:b.dataset.clip,platforms:[b.dataset.pub]})});pubSig="";pubs()}catch(e){alert(e.message)}});
  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{if(confirm("¿Borrar "+b.dataset.del+"?")){await api("/api/clips/"+encodeURIComponent(b.dataset.del),{method:"DELETE"});lastClips="";clips()}});
 }
@@ -156,7 +165,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- fillPub(c);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -167,7 +176,7 @@ $("save").onclick=async()=>{
   triggers:{cooldown_seconds:+$("g_cool").value,auto_clip_seconds:+$("g_auto").value,post_roll_seconds:+$("g_post").value,
    energy:{enabled:$("e_on").checked,spike_db:+$("e_db").value},cadence:{enabled:$("c_on").checked},
    keywords:{enabled:$("k_on").checked,laughter:$("k_laugh").checked,phrases:$("k_phr").value.split("\n").map(x=>x.trim()).filter(Boolean)}},
-  publish:pubPatch(),subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
+  publish:pubPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
  try{const r=await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
   $("smsg").textContent=r.changed.length?"Aplicado: "+r.changed.join(", "):"Sin cambios";$("a_clear").checked=false;loadSettings()}
  catch(e){$("smsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};
@@ -217,5 +226,6 @@ async function pubs(){let p;try{p=await api("/api/publish")}catch{return}
  document.querySelectorAll("[data-a]").forEach(b=>b.onclick=async()=>{const id=b.dataset.id,a=b.dataset.a;
   try{const t=document.querySelector(`[data-t="${id}"]`);if(a==="approve"&&t)await api(`/api/publish/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:t.value})});
    if(a==="del")await api(`/api/publish/${id}`,{method:"DELETE"});else await api(`/api/publish/${id}/${a}`,{method:"POST"})}catch(e){alert(e.message)}pubSig="";pubs()})}
+window.refreshClips=()=>{lastClips="";clips()};
 status();clips();pubs();setInterval(pubs,3000);setInterval(status,1500);setInterval(clips,4000);
-</script></body></html>
+</script><script src="/static/editor.js"></script></body></html>

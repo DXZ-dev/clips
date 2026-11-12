@@ -48,6 +48,7 @@ class Engine:
         self.buffer = RollingBuffer(cfg)
         self.reader: BufferReader = self.buffer.reader
         self.store = WordStore()
+        self.render_lock = threading.Lock()   # un render a la vez (CPU/GPU): clips automáticos y editor
         self.events: deque[dict] = deque(maxlen=200)
         self.jobs: dict[str, ClipJob] = {}
         self._q: queue.Queue[ClipJob] = queue.Queue()
@@ -242,9 +243,11 @@ class Engine:
         t0, t1 = max(job.t0, b[0]), min(job.t1, b[1])
         if t1 - t0 < 2:
             raise RuntimeError("tramo demasiado corto (ya salió del buffer)")
-        words = [Word(max(0.0, w.start - t0), w.end - t0, w.text) for w in self.store.between(t0, t1)]
+        m = self.cfg.editor.margin_seconds
+        words = self.store.between(t0 - m, t1 + m)              # tiempos absolutos: la fuente guarda margen extra
         job.status = "rendering"
-        out = clip_from_range(self.cfg, t0, t1, words, job.reason, job.detail)
+        with self.render_lock:
+            out = clip_from_range(self.cfg, t0, t1, words, job.reason, job.detail)
         job.status, job.file = "done", out.name
         self.event("clip", f"listo: {out.name}", job=job.id)
         try:
@@ -288,5 +291,6 @@ class Engine:
                     pass
             out.append({"name": f.name, "size_mb": round(f.stat().st_size / 1e6, 2),
                         "mtime": f.stat().st_mtime, **{k: meta.get(k) for k in
-                        ("reason", "detail", "duration", "encoder", "transcript")}})
+                        ("reason", "detail", "duration", "encoder", "transcript", "layout", "warning", "edited")},
+                        "editable": (d / "_src" / f"{f.stem}.edit.json").exists()})
         return out

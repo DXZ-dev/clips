@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from .audio import envelope_db, load_audio
-from .config import Config
+from .config import Config, RectCfg
 from .ffutil import VideoInfo, require
 
 log = logging.getLogger("clipper.tracking")
@@ -170,11 +170,14 @@ class SpeakerSelector:
 
 
 # ------------------------------------------------------------------ movimiento
-def motion_center(gray, prev) -> float | None:
+def motion_center(gray, prev, mask_px: tuple[int, int, int, int] | None = None) -> float | None:
     """Centro de masa horizontal (0..1) del movimiento entre dos fotogramas; None si casi no hay."""
     if prev is None:
         return None
     d = cv2.GaussianBlur(cv2.absdiff(gray, prev), (5, 5), 0)
+    if mask_px:                       # zona a ignorar (p. ej. la cámara del streamer)
+        x0, y0, x1, y1 = mask_px
+        d[y0:y1, x0:x1] = 0
     mask = (d > 18).astype(np.float32)
     if mask.mean() < 0.002:
         return None
@@ -183,10 +186,11 @@ def motion_center(gray, prev) -> float | None:
 
 
 # ------------------------------------------------------------------ lectura de frames
-def read_frames(input_args: list[str], fps: int, w: int, h: int) -> Iterator[np.ndarray]:
+def read_frames(input_args: list[str], fps: float, w: int, h: int, pre: str = "") -> Iterator[np.ndarray]:
+    """Fotogramas BGR a `fps` y tamaño w×h. `pre` = filtros previos (p. ej. "crop=…,")."""
     cmd = [require("ffmpeg"), "-v", "error", "-nostdin", *input_args, "-an",
-           "-vf", f"fps={fps},scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+           "-vf", f"{pre}fps={fps},scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     n = w * h * 3
     try:
         while True:
@@ -263,12 +267,15 @@ class CropPath:
         return "+".join(terms)
 
 
-def analyze(input_args: list[str], info: VideoInfo, cfg: Config) -> CropPath:
+def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | None = None, out_h: int | None = None,
+            ignore: "RectCfg | None" = None, faces: bool = True) -> CropPath:
+    """Trayectoria de la cámara virtual. out_w/out_h = proporción del recorte (por defecto 9:16 completo);
+    `ignore` = rectángulo normalizado que no cuenta como acción; faces=False sigue solo el movimiento."""
     r = cfg.reframe
-    geom = crop_geometry(info, r.width, r.height)
+    geom = crop_geometry(info, out_w or r.width, out_h or r.height)
     aw = r.analysis_width
     ah = int(round(aw * info.height / info.width)) // 2 * 2
-    det = make_detector(cfg)
+    det = make_detector(cfg) if faces else NullDetector()
     sel = SpeakerSelector(cfg, r.analysis_fps)
 
     audio = load_audio(input_args)
@@ -276,6 +283,9 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config) -> CropPath:
     audio_db = envelope_db(audio, r.analysis_fps, n_est)
     gate = r.speaker.audio_gate_db
 
+    mask_px = None
+    if ignore:
+        mask_px = (int(ignore.x * aw), int(ignore.y * ah), int((ignore.x + ignore.w) * aw) + 1, int((ignore.y + ignore.h) * ah) + 1)
     targets: list[float | None] = []
     prev = None
     try:
@@ -283,7 +293,7 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config) -> CropPath:
             gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
             voice = bool(audio_db[min(i, n_est - 1)] > gate)
             box = sel.update(det.detect(bgr), gray, prev, voice)
-            targets.append(box.cx / aw if box is not None else motion_center(gray, prev))
+            targets.append(box.cx / aw if box is not None else motion_center(gray, prev, mask_px))
             prev = gray
     finally:
         if hasattr(det, "close"):
@@ -295,3 +305,89 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config) -> CropPath:
     cx = smooth_targets(targets, r.analysis_fps, geom.crop_w / info.width, cfg)
     log.info("Seguimiento: %d muestras, detector=%s", n, type(det).__name__)
     return CropPath(r.analysis_fps, cx, geom)
+
+
+# ------------------------------------------------------------------ cámara del streamer (facecam)
+def _search_regions() -> list[tuple[float, float, float, float]]:
+    """Zonas (x, y, w, h normalizadas) donde suele ir una cámara superpuesta: esquinas y centros de borde."""
+    out = []
+    for sz in (0.5, 0.34):
+        for ax in (0.0, 1 - sz):
+            for ay in (0.0, 1 - sz):
+                out.append((ax, ay, sz, sz))
+        out += [(0.5 - sz / 2, 0.0, sz, sz), (0.5 - sz / 2, 1 - sz, sz, sz)]
+    return out
+
+
+def detect_facecam(input_args: list[str], info: VideoInfo, cfg: Config, seconds: int = 8) -> RectCfg | None:
+    """Busca la cámara superpuesta del streamer: un rostro pequeño y estable hacia una esquina/borde.
+    El detector de rostros solo ve caras grandes, así que se buscan recortes ampliados de las esquinas.
+    Devuelve el rectángulo normalizado que la contiene, o None si no parece haber (p. ej. cámara a pantalla completa)."""
+    aw = 1280
+    ah = int(round(aw * info.height / info.width)) // 2 * 2
+    det = make_detector(cfg)
+    hits: list[tuple[float, float, float, float]] = []        # (cx, cy, w, h) normalizados al fotograma
+    frames = 0
+    try:
+        for i, bgr in enumerate(read_frames(input_args, 1.0, aw, ah)):
+            if i >= seconds:
+                break
+            frames += 1
+            for rx, ry, rw, rh in _search_regions():
+                x0, y0, x1, y1 = int(rx * aw), int(ry * ah), int((rx + rw) * aw), int((ry + rh) * ah)
+                crop = bgr[y0:y1, x0:x1]
+                k = 480 / crop.shape[1]
+                for b in det.detect(cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC)):
+                    if 0.06 * 480 < b.w < 0.8 * 480:           # descarta falsos positivos diminutos / gigantes
+                        hits.append(((x0 + (b.x + b.w / 2) / k) / aw, (y0 + (b.y + b.h / 2) / k) / ah,
+                                     b.w / k / aw, b.h / k / ah))
+    finally:
+        if hasattr(det, "close"):
+            det.close()
+    if frames == 0 or not hits:
+        return None
+    # agrupa por posición (rejilla del 6 %) y se queda con el grupo más repetido
+    groups: dict[tuple[int, int], list] = {}
+    for h in hits:
+        groups.setdefault((round(h[0] / 0.06), round(h[1] / 0.06)), []).append(h)
+    best = max(groups.values(), key=len)
+    if len(best) < max(2, frames // 2):                           # debe verse en la mitad de los fotogramas
+        return None
+    cx, cy, fw, fh = (float(v) for v in np.median(np.array(best), axis=0))
+    if fw > 0.3 or not (cx < 0.35 or cx > 0.65 or cy < 0.3 or cy > 0.7):
+        return None                                               # rostro grande o central: no es una cámara superpuesta
+    w = fw * 3.2                                                  # la cámara suele medir ~3 veces el ancho del rostro
+    ed = min(cx, 1 - cx)
+    if ed < 0.3:                                                  # pegada a un lado: se extiende hasta el borde
+        w = max(w, 2 * ed)
+    w = min(0.5, w)
+    h = min(0.9, w * (info.width / info.height) * 3 / 4)         # proporción 4:3 en píxeles
+    x, y = min(max(cx - w / 2, 0), 1 - w), min(max(cy - h / 2, 0), 1 - h)
+    snap = 0.08                                                   # las cámaras suelen ir pegadas al borde
+    x = 0.0 if x < snap else (1 - w if 1 - (x + w) < snap else x)
+    y = 0.0 if y < snap else (1 - h if 1 - (y + h) < snap else y)
+    return RectCfg(x=round(x, 4), y=round(y, 4), w=round(w, 4), h=round(h, 4))
+
+
+def face_center_in(input_args: list[str], info: VideoInfo, cfg: Config, rect: RectCfg, seconds: int = 10) -> tuple[float, float] | None:
+    """Centro (0..1, relativo al rectángulo) del rostro dentro de la cámara; sirve para encuadrarla bien."""
+    px = (int(rect.x * info.width), int(rect.y * info.height),
+          int(rect.w * info.width) // 2 * 2, int(rect.h * info.height) // 2 * 2)
+    aw = 320
+    ah = max(2, int(round(aw * px[3] / px[2])) // 2 * 2)
+    det = make_detector(cfg)
+    cs: list[tuple[float, float]] = []
+    try:
+        for i, bgr in enumerate(read_frames(input_args, 1.0, aw, ah, pre=f"crop={px[2]}:{px[3]}:{px[0]}:{px[1]},")):
+            if i >= seconds:
+                break
+            f = det.detect(bgr)
+            if f:
+                b = max(f, key=lambda b: b.w)
+                cs.append(((b.x + b.w / 2) / aw, (b.y + b.h / 2) / ah))
+    finally:
+        if hasattr(det, "close"):
+            det.close()
+    if not cs:
+        return None
+    return float(np.median([c[0] for c in cs])), float(np.median([c[1] for c in cs]))

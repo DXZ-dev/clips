@@ -38,6 +38,8 @@ def main(argv=None) -> int:
     f.add_argument("-o", "--out")
     f.add_argument("--words")
     f.add_argument("-s", "--last-seconds", type=float)
+    f.add_argument("--layout", choices=["auto", "split", "fit"], help="auto | split (cámara arriba + gameplay) | fit")
+    f.add_argument("--facecam", help="x,y,w,h normalizados (0..1) de la cámara; sin él se autodetecta")
     a = ap.parse_args(argv)
 
     if a.cmd != "download-model":       # ejecución normal: cero tráfico hacia Hugging Face
@@ -64,7 +66,13 @@ def main(argv=None) -> int:
         print(clip_from_buffer(cfg, a.seconds or cfg.clip.default_seconds, words))
     elif a.cmd == "reframe":
         words = load_words(a.words) if a.words else None
-        print(clip_from_file(cfg, a.input, Path(a.out) if a.out else None, words, a.last_seconds))
+        cam = None
+        if a.facecam:
+            from .config import RectCfg
+            x, y, w, h = (float(v) for v in a.facecam.split(","))
+            cam = RectCfg(x=x, y=y, w=w, h=h)
+        print(clip_from_file(cfg, a.input, Path(a.out) if a.out else None, words, a.last_seconds,
+                             layout=a.layout, facecam=cam))
     elif a.cmd == "download-model":
         from faster_whisper.utils import download_model
         dest = cfg.path(f"models/whisper-{a.name}")

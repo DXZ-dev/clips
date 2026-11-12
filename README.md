@@ -22,6 +22,22 @@ curl -X POST localhost:8000/clip -H 'content-type: application/json' -d '{"secon
 El panel permite lanzar clips (15/30/60 s, tecla **C**), ver el buffer, la transcripción y los eventos,
 previsualizar/descargar/borrar clips y **cambiar entre GPU NVIDIA y solo CPU en caliente**.
 
+## Diseños de clip y editor (Fase 5)
+**Diseños** (`layout.mode`, o por clip en el editor):
+- `auto`: recorte 9:16 que sigue al hablante / la acción (como hasta ahora).
+- `split`: **cámara del streamer arriba y gameplay abajo** (o al revés). La cámara se **autodetecta** buscando un rostro pequeño y fijo en las esquinas
+  y se encuadra centrada en la cara; si no la encuentra cae a `auto` con un aviso, y siempre puedes dibujar el rectángulo a mano en el editor
+  (o fijarlo en `layout.facecam`). El gameplay puede ir completo sobre fondo difuminado (`contain`) o recortado siguiendo la acción sin contar la cámara (`cover`).
+- `fit`: pantalla completa centrada sobre su propio fondo difuminado.
+CLI: `python -m clipper reframe stream.mp4 --layout split [--facecam 0.75,0.62,0.25,0.38]`.
+
+**Editor** (botón ✂️ Editar en cada clip del panel). Cada clip guarda su vídeo fuente (con 6 s extra por lado, ~10-30 MB) en `output_clips/_src/`:
+recortar inicio/fin (puedes **ampliar** más allá del clip original) · cambiar diseño, cámara arriba/abajo y altura · **6 estilos de subtítulos**
+(clasico, hormozi, beast, neon, fuego, minimal) con color/tamaño/posición propios (incluida la unión cámara/gameplay) · **corregir o borrar palabras** de la transcripción ·
+**gancho** (rótulo al empezar) · **marca de agua** (@usuario) · previsualización rápida a 540×960 · «Aplicar» sobrescribe o «Guardar como nuevo» crea `_v2`, `_v3`…
+Desactívalo con `editor.keep_sources: false` si prefieres ahorrar disco (los clips dejan de ser editables).
+Limitaciones: la cámara se amplía a 1080 px de ancho, así que una cámara de poca resolución se verá blanda; con `contain` la cámara aparece también en la esquina del gameplay.
+
 ## Publicación automática en redes (Fase 4)
 Activa **Ajustes → Publicación**. Cada clip nuevo crea una entrada por destino activado y, según el modo, espera tu aprobación
 (**Revisión**, por defecto) o se sube solo (**Auto**). Cola persistente en `data/publish.db`; reintentos con espera (1-2-4 min),
@@ -86,8 +102,10 @@ clipper/sources.py     construye la entrada ffmpeg (RTMP/HLS/streamlink/yt-dlp/a
 clipper/buffer.py      RollingBuffer (escribe segmentos de 5 s, descarta >90 s) + BufferReader (otro proceso puede leer)
 clipper/audio.py       extracción de audio y energía en dB
 clipper/tracking.py    rostros (MediaPipe/Haar), hablante activo, movimiento, suavizado EMA+zona muerta+límite de velocidad
-clipper/subtitles.py   generador .ass palabra a palabra
-clipper/render.py      ffmpeg: crop móvil -> 1080x1920 -> ass; NVENC con fallback automático a libx264
+clipper/subtitles.py   generador .ass palabra a palabra + estilos predefinidos, gancho y marca de agua
+clipper/spec.py        EditSpec: lo que guarda el editor (recorte, diseño, subtítulos, gancho…)
+clipper/editor.py      previsualización / render final / fotogramas del editor
+clipper/render.py      ffmpeg: diseños auto/split/fit -> 1080x1920 -> ass; NVENC con fallback automático a libx264
 clipper/pipeline.py    orquestación; clipper/cli.py  línea de comandos
 clipper/detect/        vad.py (silero) · transcriber.py (faster-whisper) · triggers.py
 clipper/engine.py      motor: buffer + transcripción + disparadores + cola de clips

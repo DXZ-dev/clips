@@ -1,18 +1,20 @@
-"""Orquestación: entrada (buffer o archivo) -> seguimiento -> subtítulos -> render."""
+"""Orquestación: entrada (buffer o archivo) -> fuente guardada -> EditSpec -> render."""
 from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import tempfile
 import time
 from pathlib import Path
 
-from .buffer import BufferReader, ClipInput
-from .config import Config
-from .ffutil import duration as ffduration, probe
-from .render import render_clip
-from .subtitles import Word, build_ass
-from .tracking import analyze
+from .buffer import BufferReader
+from .config import Config, RectCfg
+from .editor import finalize, out_dir, source_path, src_dir
+from .ffutil import duration as ffduration, require
+from .render import render_spec
+from .spec import EditWord, default_spec
+from .subtitles import Word
 
 log = logging.getLogger("clipper.pipeline")
 
@@ -22,63 +24,65 @@ def load_words(path: str | Path) -> list[Word]:
             for w in json.loads(Path(path).read_text())]
 
 
-def _run(cfg: Config, input_args: list[str], pre: list[str], probe_target: str, out: Path,
-         words: list[Word] | None, meta: dict) -> Path:
-    t0 = time.time()
-    info = probe(probe_target, pre)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    path = analyze(input_args, info, cfg)
-    t1 = time.time()
-    ass = build_ass(words, cfg.subtitles, cfg.reframe.width, cfg.reframe.height) \
-        if (words and cfg.subtitles.enabled) else None
-    with tempfile.TemporaryDirectory(prefix="render_") as wd:
-        enc = render_clip(input_args, out, path, cfg, ass, Path(wd))
-    t2 = time.time()
-    meta.update(encoder=enc, source_resolution=f"{info.width}x{info.height}",
-                analysis_seconds=round(t1 - t0, 2), render_seconds=round(t2 - t1, 2),
-                created=time.strftime("%Y-%m-%dT%H:%M:%S"), words=len(words or []))
-    out.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-    log.info("Clip %s (%s) análisis %.1fs, render %.1fs", out.name, enc, t1 - t0, t2 - t1)
-    return out
-
-
-def clip_from_buffer(cfg: Config, seconds: int, words: list[Word] | None = None,
-                     reason: str = "manual", name: str | None = None) -> Path:
+def clip_from_range(cfg: Config, t0: float, t1: float, words_abs: list[Word] | None, reason: str,
+                    detail: str = "", name: str | None = None) -> Path:
+    """Clip del tramo [t0, t1] (tiempo de stream). `words_abs` con tiempos absolutos de stream.
+    Guarda la fuente (con margen a ambos lados) para poder editar el clip después."""
     reader = BufferReader(cfg.buffer.dir, cfg.buffer.segment_seconds, cfg.buffer.window_seconds)
-    ci: ClipInput = reader.prepare(seconds)
+    m = cfg.editor.margin_seconds
+    ci = reader.prepare_range(t0 - m, t1 + m)
     try:
-        list_txt = ci.workdir / "list.txt"
-        out = cfg.path(cfg.clip.output_dir) / f"{name or 'clip_' + time.strftime('%Y%m%d_%H%M%S')}.mp4"
-        return _run(cfg, ci.args, ["-f", "concat", "-safe", "0"], str(list_txt), out, words,
-                    {"reason": reason, "requested_seconds": seconds, "duration": round(ci.duration, 2)})
+        stem = name or f"clip_{time.strftime('%Y%m%d_%H%M%S')}_{reason}"
+        tmp = None
+        if cfg.editor.keep_sources:
+            src_dir(cfg).mkdir(parents=True, exist_ok=True)
+            src = source_path(cfg, stem)
+        else:
+            tmp = tempfile.TemporaryDirectory(prefix="src_")
+            src = Path(tmp.name) / f"{stem}.src.mp4"
+        subprocess.run([require("ffmpeg"), "-y", "-v", "error", "-nostdin", "-f", "concat", "-safe", "0",
+                        "-i", str(ci.workdir / "list.txt"), "-c", "copy", "-movflags", "+faststart", str(src)],
+                       check=True, capture_output=True)
+        sdur = ffduration(str(src))
+        seg0 = ci.seg_start
+        words = [EditWord(start=max(0.0, w.start - seg0), end=max(0.0, w.end - seg0), text=w.text)
+                 for w in (words_abs or []) if w.text.strip()]
+        spec = default_spec(cfg, words, max(0.0, t0 - seg0), min(t1 - seg0, sdur))
+        out = out_dir(cfg) / f"{stem}.mp4"
+        finalize(cfg, stem, src, spec, out, {"reason": reason, "detail": detail})
+        if tmp:
+            tmp.cleanup()
+        return out
     finally:
         ci.cleanup()
+
+
+def clip_from_buffer(cfg: Config, seconds: int, words: list[Word] | None = None, reason: str = "manual") -> Path:
+    """Los últimos `seconds` del buffer. `words` (si hay) vienen relativos al inicio del clip."""
+    b = BufferReader(cfg.buffer.dir, cfg.buffer.segment_seconds, cfg.buffer.window_seconds).bounds()
+    if not b:
+        raise RuntimeError("El buffer está vacío (¿está corriendo la ingesta?)")
+    t0 = max(b[0], b[1] - seconds)
+    abs_words = [Word(t0 + w.start, t0 + w.end, w.text) for w in (words or [])]
+    return clip_from_range(cfg, t0, b[1], abs_words, reason)
 
 
 def clip_from_file(cfg: Config, src: str | Path, out: Path | None = None, words: list[Word] | None = None,
-                   last_seconds: float | None = None, reason: str = "file") -> Path:
-    """Procesa un archivo cualquiera (o sus últimos N segundos). Útil para pruebas y uso offline."""
-    src = str(Path(src).resolve())   # el render corre con otro cwd
-    total = ffduration(src)
-    args: list[str] = []
-    if last_seconds and total > last_seconds:
-        args += ["-ss", f"{total - last_seconds:.3f}"]
-    args += ["-i", src]
-    out = out or cfg.path(cfg.clip.output_dir) / f"{Path(src).stem}_9x16.mp4"
-    return _run(cfg, args, [], src, out, words, {"reason": reason, "source": src,
-                                                  "duration": round(min(total, last_seconds or total), 2)})
-
-
-def clip_from_range(cfg: Config, t0: float, t1: float, words: list[Word] | None, reason: str,
-                    detail: str = "") -> Path:
-    """Clip del tramo [t0, t1] (tiempo de stream). `words` ya vienen relativos a t0."""
-    reader = BufferReader(cfg.buffer.dir, cfg.buffer.segment_seconds, cfg.buffer.window_seconds)
-    ci = reader.prepare_range(t0, t1)
-    try:
-        out = cfg.path(cfg.clip.output_dir) / f"clip_{time.strftime('%Y%m%d_%H%M%S')}_{reason}.mp4"
-        meta = {"reason": reason, "detail": detail, "duration": round(ci.duration, 2),
-                "transcript": " ".join(w.text for w in (words or []))}
-        return _run(cfg, ci.args, ["-f", "concat", "-safe", "0"], str(ci.workdir / "list.txt"), out,
-                    words, meta)
-    finally:
-        ci.cleanup()
+                   last_seconds: float | None = None, reason: str = "file", layout: str | None = None,
+                   facecam: RectCfg | None = None) -> Path:
+    """Procesa un archivo cualquiera (o sus últimos N segundos). `words` relativos al inicio del tramo."""
+    src = Path(src).resolve()
+    total = ffduration(str(src))
+    start = max(0.0, total - last_seconds) if last_seconds else 0.0
+    spec = default_spec(cfg, [EditWord(start=w.start + start, end=w.end + start, text=w.text) for w in (words or [])],
+                        start, total)
+    if layout:
+        spec.layout = layout
+    if facecam:
+        spec.facecam = facecam
+    out = out or out_dir(cfg) / f"{src.stem}_9x16.mp4"
+    info = render_spec(cfg, src, spec, out)
+    meta = {**info, "reason": reason, "source": str(src), "words": len(words or []),
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    out.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+    return out

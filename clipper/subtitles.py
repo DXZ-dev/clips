@@ -1,9 +1,28 @@
 """Subtítulos ASS palabra a palabra: la palabra activa se resalta de color, con borde negro grueso."""
 from __future__ import annotations
 
+import textwrap
 from dataclasses import dataclass
 
 from .config import SubtitlesCfg
+
+# Estilos listos para usar (inspirados en los de Submagic/Opus). Cada uno sobrescribe campos de SubtitlesCfg.
+PRESETS: dict[str, dict] = {
+    "clasico": {},
+    "hormozi": {"primary_color": "#FFFFFF", "highlight_color": "#00E676", "font_size": 96, "outline": 11, "uppercase": True, "max_words_per_line": 2},
+    "beast": {"primary_color": "#FFE600", "highlight_color": "#FFFFFF", "font_size": 104, "outline": 12, "uppercase": True, "max_words_per_line": 2},
+    "neon": {"primary_color": "#FFFFFF", "highlight_color": "#00E5FF", "outline_color": "#1A0033", "font_size": 88, "outline": 10},
+    "fuego": {"primary_color": "#FFFFFF", "highlight_color": "#FF5A1F", "font_size": 92, "outline": 10, "max_words_per_line": 3},
+    "minimal": {"primary_color": "#FFFFFF", "highlight_color": "#FFFFFF", "font_size": 64, "outline": 5, "uppercase": False, "max_words_per_line": 4},
+}
+
+
+def with_preset(cfg: SubtitlesCfg, name: str | None, **overrides) -> SubtitlesCfg:
+    """Copia de cfg con un preset y ajustes puntuales aplicados (los None se ignoran)."""
+    data = cfg.model_dump()
+    data.update(PRESETS.get(name or "clasico", {}))
+    data.update({k: v for k, v in overrides.items() if v is not None})
+    return SubtitlesCfg.model_validate(data)
 
 
 @dataclass
@@ -45,9 +64,14 @@ def _pages(words: list[Word], cfg: SubtitlesCfg) -> list[list[Word]]:
     return pages
 
 
-def build_ass(words: list[Word], cfg: SubtitlesCfg, width: int = 1080, height: int = 1920) -> str:
+def build_ass(words: list[Word], cfg: SubtitlesCfg, width: int = 1080, height: int = 1920,
+              seam_y: int | None = None, hook: tuple[str, float] | None = None,
+              watermark: tuple[str, str] | None = None, duration: float = 0.0) -> str:
+    """`seam_y`: y (px) de la unión cámara/gameplay para position='seam'. `hook`=(texto, segundos) rótulo
+    de gancho arriba; `watermark`=(texto, esquina tl|tr|bl|br)."""
+    pos = "center" if cfg.position == "seam" and seam_y is None else cfg.position
     align, margin_v = {"center": (5, 0), "lower_third": (2, int(height * 0.27)),
-                       "bottom": (2, int(height * 0.12))}[cfg.position]
+                       "bottom": (2, int(height * 0.12)), "seam": (5, 0)}[pos]
     hdr = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -58,6 +82,9 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,{cfg.font},{cfg.font_size},{_color(cfg.primary_color)},{_color(cfg.primary_color)},{_color(cfg.outline_color)},&H64000000&,-1,0,0,0,100,100,0,0,1,{cfg.outline},0,{align},60,60,{margin_v},1
+
+Style: Hook,{cfg.font},{int(cfg.font_size * 0.72)},&H00000000&,&H00000000&,&H00FFFFFF&,&H00FFFFFF&,-1,0,0,0,100,100,0,0,3,18,0,8,70,70,{int(height * 0.07)},1
+Style: Mark,{cfg.font},{int(cfg.font_size * 0.42)},&H00FFFFFF&,&H00FFFFFF&,&H00000000&,&H00000000&,-1,0,0,0,100,100,0,0,1,3,0,{{MARKALIGN}},40,40,{int(height * 0.035)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -81,5 +108,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 elif j + 1 < len(page):
                     parts.append(" ")
             text = "".join(parts).replace(" \\N ", "\\N").replace(" \\N", "\\N")
+            if cfg.position == "seam" and seam_y is not None:
+                text = f"{{\\an5\\pos({width // 2},{seam_y})}}" + text
             events.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{text}")
+    mark_align = {"tl": 7, "tr": 9, "bl": 1, "br": 3}.get((watermark or ("", "br"))[1], 9)
+    hdr = hdr.replace("{MARKALIGN}", str(mark_align))
+    end = _ts(duration or 36000)
+    if hook and hook[0].strip():
+        lines = "\\N".join(textwrap.wrap(_clean(hook[0], False), 20))   # WrapStyle 2: hay que partir a mano
+        events.append(f"Dialogue: 1,{_ts(0)},{_ts(max(0.5, hook[1]))},Hook,,0,0,0,,{lines}")
+    if watermark and watermark[0].strip():
+        events.append(f"Dialogue: 2,{_ts(0)},{end},Mark,,0,0,0,,{{\\alpha&H66&}}{_clean(watermark[0], False)}")
     return hdr + "\n".join(events) + "\n"

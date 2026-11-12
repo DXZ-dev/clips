@@ -74,6 +74,34 @@ class ReframeCfg(BaseModel):
     speaker: SpeakerCfg = SpeakerCfg()
 
 
+class RectCfg(BaseModel):
+    """Rectángulo normalizado (0..1) sobre el fotograma fuente."""
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    w: float = Field(gt=0.04, le=1)
+    h: float = Field(gt=0.04, le=1)
+
+    @model_validator(mode="after")
+    def _inside(self):
+        if self.x + self.w > 1.0001 or self.y + self.h > 1.0001:
+            raise ValueError("el rectángulo se sale del fotograma")
+        return self
+
+
+class LayoutCfg(BaseModel):
+    mode: Literal["auto", "split", "fit"] = "auto"   # auto = recorte que sigue al hablante/acción
+    facecam: RectCfg | None = None                    # None => se autodetecta (mediapipe) en cada clip
+    facecam_position: Literal["top", "bottom"] = "top"
+    facecam_height_pct: int = Field(38, ge=15, le=60)  # % de la altura vertical que ocupa la cámara
+    gameplay: Literal["cover", "contain"] = "cover"   # cover = recorta y sigue la acción; contain = completo + fondo desenfocado
+    blur_strength: int = Field(28, ge=4, le=60)
+
+
+class EditorCfg(BaseModel):
+    keep_sources: bool = True            # guarda el vídeo fuente de cada clip para poder editarlo después
+    margin_seconds: float = 6.0          # segundos extra antes/después guardados en la fuente (para ampliar el recorte)
+
+
 class SubtitlesCfg(BaseModel):
     enabled: bool = True
     font: str = "DejaVu Sans"
@@ -83,7 +111,7 @@ class SubtitlesCfg(BaseModel):
     highlight_color: str = "#FFE600"
     outline_color: str = "#000000"
     outline: int = 9
-    position: Literal["center", "lower_third", "bottom"] = "lower_third"
+    position: Literal["center", "lower_third", "bottom", "seam"] = "lower_third"   # seam = en la unión cámara/gameplay
     max_words_per_line: int = 3
     max_lines: int = 2
 
@@ -240,6 +268,8 @@ class Config(BaseModel):
     buffer: BufferCfg = BufferCfg()
     clip: ClipCfg = ClipCfg()
     reframe: ReframeCfg = ReframeCfg()
+    layout: LayoutCfg = LayoutCfg()
+    editor: EditorCfg = EditorCfg()
     subtitles: SubtitlesCfg = SubtitlesCfg()
     render: RenderCfg = RenderCfg()
 

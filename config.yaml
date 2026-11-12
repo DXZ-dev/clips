@@ -43,6 +43,18 @@ reframe:
     switch_frames: 3
     audio_gate_db: -45  # sin voz por debajo de este nivel no se cambia de hablante
 
+layout:
+  mode: auto            # auto = recorte que sigue al hablante | split = cámara arriba + gameplay abajo | fit = completo con fondo difuminado
+  facecam: null         # {x: 0.75, y: 0.62, w: 0.25, h: 0.38} (0..1 sobre el fotograma). null = autodetectar en cada clip
+  facecam_position: top # top | bottom
+  facecam_height_pct: 38
+  gameplay: contain     # contain = pantalla completa sobre fondo difuminado | cover = recorte que sigue la acción
+  blur_strength: 28
+
+editor:
+  keep_sources: true    # guarda la fuente de cada clip (~10-30 MB) para poder editarlo después
+  margin_seconds: 6     # segundos extra antes/después guardados para poder ampliar el recorte
+
 subtitles:
   enabled: true
   font: DejaVu Sans

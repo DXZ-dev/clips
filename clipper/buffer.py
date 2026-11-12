@@ -42,6 +42,7 @@ class ClipInput:
     args: list[str]        # p. ej. ["-ss","12.5","-f","concat","-safe","0","-i","/x/list.txt"]
     duration: float        # duración efectiva del tramo
     workdir: Path
+    seg_start: float = 0.0  # tiempo de stream en el que empieza el primer segmento incluido
 
     def cleanup(self) -> None:
         shutil.rmtree(self.workdir, ignore_errors=True)
@@ -99,7 +100,7 @@ class BufferReader:
         (work / "list.txt").write_text("\n".join(lines) + "\n")
         args = (["-ss", f"{ss:.3f}"] if ss > 0 else []) + [
             "-f", "concat", "-safe", "0", "-i", str(work / "list.txt")]
-        return ClipInput(args, dur, work)
+        return ClipInput(args, dur, work, seg_start=chosen[0].start)
 
     def prepare(self, seconds: float) -> ClipInput:
         """Los últimos `seconds` del buffer (falta como mucho el segmento en curso: latencia ≤ segment_seconds)."""

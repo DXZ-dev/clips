@@ -7,11 +7,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import ValidationError
 from pydantic import BaseModel
 
+from .. import editor as ed
 from ..engine import Engine
+from ..spec import EditSpec
+from ..subtitles import PRESETS
 from ..publish.base import AuthError, OAuthPublisher, OAuthStates
 
 STATIC = Path(__file__).parent / "static"
@@ -29,6 +33,11 @@ class EnqueueRequest(BaseModel):
 class EditRequest(BaseModel):
     title: str | None = None
     description: str | None = None
+
+
+class RenderRequest(BaseModel):
+    spec: EditSpec
+    as_new: bool = False
 
 
 class DeviceRequest(BaseModel):
@@ -61,6 +70,8 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
         return await call_next(request)
 
     clips_dir = lambda: engine.cfg.path(engine.cfg.clip.output_dir)  # noqa: E731
+
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @app.get("/")
     def index():
@@ -216,8 +227,76 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
     @app.delete("/api/clips/{name}")
     def delete_clip(name: str):
         p = _safe(name)
-        p.unlink()
-        p.with_suffix(".json").unlink(missing_ok=True)
+        ed.remove_clip_files(engine.cfg, p.stem)
         return JSONResponse({"deleted": name})
+
+    # ------------------------------------------------------------------ editor
+    def _editor(fn, *a):
+        try:
+            return fn(*a)
+        except ed.EditorError as e:
+            raise HTTPException(409, str(e))
+        except RuntimeError as e:
+            raise HTTPException(500, str(e))
+
+    @app.get("/api/presets")
+    def presets():
+        from ..subtitles import with_preset
+        out = {}
+        for k in PRESETS:
+            c = with_preset(engine.cfg.subtitles, k)
+            out[k] = {"primary": c.primary_color, "highlight": c.highlight_color, "size": c.font_size}
+        return out
+
+    @app.get("/api/clips/{name}/edit")
+    def clip_edit(name: str):
+        _safe(name)
+        data = _editor(ed.load_edit, engine.cfg, name)
+        if data is None:
+            raise HTTPException(404, "este clip no tiene fuente guardada: no se puede editar")
+        return data
+
+    @app.get("/api/clips/{name}/source")
+    def clip_source(name: str):
+        _safe(name)
+        p = ed.source_path(engine.cfg, ed.stem_of(name))
+        if not p.exists():
+            raise HTTPException(404, "sin fuente")
+        return FileResponse(p, media_type="video/mp4")
+
+    @app.get("/api/clips/{name}/frame")
+    def clip_frame(name: str, t: float = 0.0, w: int = 960):
+        _safe(name)
+        return Response(_editor(ed.frame_jpeg, engine.cfg, name, t, min(max(w, 160), 1920)), media_type="image/jpeg")
+
+    @app.post("/api/clips/{name}/facecam")
+    def clip_facecam(name: str, spec: EditSpec):
+        _safe(name)
+        with engine.render_lock:
+            rect = _editor(ed.suggest_facecam, engine.cfg, name, spec)
+        return {"facecam": rect.model_dump() if rect else None}
+
+    @app.post("/api/clips/{name}/preview")
+    def clip_preview(name: str, spec: EditSpec):
+        _safe(name)
+        with engine.render_lock:
+            p = _editor(ed.preview, engine.cfg, name, spec)
+        return {"url": f"/api/clips/{name}/preview.mp4?v={int(p.stat().st_mtime * 1000)}"}
+
+    @app.get("/api/clips/{name}/preview.mp4")
+    def clip_preview_file(name: str):
+        _safe(name)
+        p = ed.src_dir(engine.cfg) / f"{ed.stem_of(name)}.preview.mp4"
+        if not p.exists():
+            raise HTTPException(404, "sin previsualización")
+        return FileResponse(p, media_type="video/mp4")
+
+    @app.post("/api/clips/{name}/render")
+    def clip_render(name: str, req: RenderRequest):
+        _safe(name)
+        with engine.render_lock:
+            new = _editor(ed.apply, engine.cfg, name, req.spec, req.as_new)
+        engine.event("clip", f"editado: {new}")
+        return {"name": new}
 
     return app
