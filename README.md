@@ -2,15 +2,36 @@
 
 Herramienta personal (Debian/Ubuntu). Estado: **Fases 1, 2 y 3 completas** (buffer + reframe 9:16 + subtítulos ASS · transcripción y disparadores · panel web).
 
-## Instalación (Ubuntu/Debian)
+## Instalación automática (Linux)
+El instalador clona el repositorio, instala las dependencias del sistema (ffmpeg, Python venv, fuentes, libs gráficas), crea el entorno virtual,
+instala los paquetes de Python (torch en versión CPU, ~200 MB), descarga los modelos, crea el comando `clipper` y **verifica** todo con una
+prueba de render real. Es idempotente: volver a ejecutarlo actualiza el código y las dependencias.
+
+**Repositorio privado → hace falta un token de GitHub** (fine-grained, permiso de solo lectura de *Contents* sobre `DXZ-dev/clips`):
+```bash
+export GITHUB_TOKEN=github_pat_xxxxxxxx
+curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
+  https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash -s -- --yes
+```
+(Hoy el repo solo tiene esa rama; cuando exista `main`, sustitúyela en la URL. El instalador clona la rama por defecto del repo salvo que uses `--branch`.)
+Si prefieres no pasar el token por `curl`: `git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh`.
+
+Opciones útiles (`./install.sh --help`): `--service` (servicio systemd de usuario que arranca el panel), `--port N`, `--whisper tiny|base|small|medium|large-v3`,
+`--gpu`/`--cpu` (librerías CUDA para Whisper; se autodetecta NVIDIA), `--no-models`, `--dry-run` (muestra qué haría), `--uninstall [--purge]`
+(`--purge` borra además modelos, ajustes, secretos, tokens y cola; nunca borra tus clips).
+Probado en Ubuntu 24.04 con Python 3.11 (también 3.12 en desarrollo). Debian/Ubuntu: completo. Fedora y Arch: instalan lo básico pero **sin probar** (en Fedora, ffmpeg con libx264 requiere RPM Fusion).
+Tras instalar: `clipper serve` → **http://localhost:7848** (puerto configurable con `--port` o `server.port`).
+
+## Instalación manual (Ubuntu/Debian)
 ```bash
 sudo apt install -y ffmpeg python3-venv fonts-dejavu-core libegl1   # libegl1: lo exige mediapipe
 python3.12 -m venv .venv && . .venv/bin/activate                    # 3.11/3.12 recomendado
-pip install -r requirements.txt
+pip install -r requirements.txt && pip install --no-deps -e .
 ./scripts/download_models.sh                                        # modelo de rostros de MediaPipe
-./scripts/check_env.sh && python -m clipper check                   # qué encoder se usará
+clipper download-model small                                        # Whisper (única descarga; luego todo es local)
+./scripts/check_env.sh && clipper check                             # qué encoder se usará
 ```
-Python 3.13 funciona para el núcleo, pero torch/mediapipe/faster-whisper (Fase 2) suelen tardar en publicar wheels: usa 3.12.
+Python 3.13 funciona para el núcleo, pero torch/mediapipe/faster-whisper suelen tardar en publicar wheels: usa 3.12.
 
 ## Arranque rápido
 ```bash

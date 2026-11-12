@@ -168,6 +168,10 @@ git_env() {
   # El token va por variables de entorno (no en la URL ni en los argumentos visibles con `ps`).
   local tok="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
   if [ -n "$tok" ]; then
+    local gv; gv="$(git --version | awk '{print $3}')"
+    if [ "$(printf '%s\n2.31\n' "$gv" | sort -V | head -1)" != "2.31" ]; then
+      die "git $gv es demasiado antiguo para usar GITHUB_TOKEN de forma segura (hace falta ≥ 2.31). Actualiza git o clona a mano y ejecuta ./install.sh."
+    fi
     local hdr; hdr="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$tok" | base64 -w0)"
     export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="$hdr"
   fi
