@@ -154,8 +154,12 @@ install_system_deps() {
   esac
   need_cmd ffmpeg || { [ "$DRY" = 1 ] || die "ffmpeg no está instalado."; }
   if [ "$DRY" != 1 ]; then
-    ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libx264 || die "Tu ffmpeg no incluye libx264 (necesario para el modo CPU)."
-    ok "ffmpeg $(ffmpeg -version | head -1 | awk '{print $3}') con libx264"
+    # (se captura la salida antes de grep: con pipefail, `grep -q` cerrando el pipe haría fallar a ffmpeg por SIGPIPE)
+    local enc ver
+    enc="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+    [[ "$enc" == *libx264* ]] || die "Tu ffmpeg no incluye libx264 (necesario para el modo CPU)."
+    ver="$(ffmpeg -version 2>/dev/null | awk 'NR==1{print $3}' || true)"
+    ok "ffmpeg ${ver:-?} con libx264"
   fi
 }
 
@@ -228,7 +232,11 @@ make_venv() {
   ok "$VENV"
 }
 
-has_nvidia() { need_cmd nvidia-smi && nvidia-smi -L 2>/dev/null | grep -q GPU; }
+has_nvidia() {
+  need_cmd nvidia-smi || return 1
+  local out; out="$(nvidia-smi -L 2>/dev/null || true)"
+  [[ "$out" == *GPU* ]]
+}
 
 install_python_deps() {
   step "Dependencias de Python (puede tardar varios minutos)"
