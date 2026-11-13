@@ -112,7 +112,7 @@ class LayoutCfg(BaseModel):
     cam_box: RectCfg | None = None            # modo overlay: dónde va la cámara DENTRO del clip 9:16 (fracciones 0-1 del lienzo); None = arriba, ancho casi completo
     exact_zones: bool = True                  # lo recortado en la zona 1 es EXACTAMENTE lo que sale; la altura de cada pantalla se adapta a su proporción
     gameplay_zone: RectCfg | None = None      # zona 1 marcada a mano: de aquí sale el gameplay y solo aquí se busca movimiento
-    panels: Literal["cards", "flush", "overlay"] = "cards"   # cards = dos pantallas independientes (tarjetas redondeadas sobre fondo desenfocado); flush = pegadas
+    panels: Literal["cards", "flush", "overlay"] = "overlay"   # cards = dos pantallas independientes (tarjetas redondeadas sobre fondo desenfocado); flush = pegadas
     panel_margin: int = Field(36, ge=0, le=120)   # margen exterior de las tarjetas (px sobre 1080x1920)
     panel_gap: int = Field(28, ge=0, le=120)      # hueco entre las dos pantallas
     panel_radius: int = Field(40, ge=0, le=120)   # redondeo de las esquinas

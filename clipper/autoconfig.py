@@ -62,7 +62,7 @@ def run(engine, jpeg_fn: Callable[[], bytes]) -> dict:
             except Exception as e:  # noqa: BLE001
                 steps.append(_step("Detector local de cámara", "warn", str(e)[:160]))
     if cam:
-        patch["layout"] = {"mode": "split", "facecam": cam, "cam_follow": True, "cam_zoom": 1.15, "gameplay": "center", "facecam_height_pct": 34}
+        patch["layout"] = {"mode": "split", "facecam": cam, "cam_follow": True, "cam_zoom": 1.15, "gameplay": "center", "facecam_height_pct": 34, "panels": "overlay"}
         steps.append(_step("Cámara y diseño", "ok", f"cámara ubicada con {how}: cámara arriba y centro del gameplay abajo, siguiendo tu rostro"))
     elif live:
         patch["layout"] = {"mode": "auto", "facecam": None}

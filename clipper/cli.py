@@ -33,6 +33,8 @@ def main(argv=None) -> int:
     dm.add_argument("name", nargs="?", default="small")
     sp = sub.add_parser("set-password", help="Pone o cambia la contraseña del panel (necesaria para abrirlo a la red)")
     sp.add_argument("--stdin", action="store_true", help="leer la contraseña de la entrada estándar (sin preguntar)")
+    ms = sub.add_parser("add-stream", help="Añade otra transmisión simultánea (2 o 3), cada una con su panel y puerto")
+    ms.add_argument("n", type=int, choices=[2, 3])
     sub.add_parser("selftest", help="Comprueba que el render y el camino de directo funcionan en esta máquina")
     sub.add_parser("ensure-models", help="Descarga el modelo Whisper configurado si falta (lo usa el contenedor Docker)")
     tr = sub.add_parser("transcribe", help="Transcribe un archivo a JSON de palabras (para --words)")
@@ -95,6 +97,13 @@ def main(argv=None) -> int:
                "downloaded": f"Whisper '{cfg.transcribe.model}' descargado"}[r])
     elif a.cmd == "run":
         _run_terminal(cfg)
+    elif a.cmd == "add-stream":
+        from . import multi
+        try:
+            print(multi.install(cfg, a.n))
+        except Exception as e:  # noqa: BLE001
+            print(f"No se pudo crear la transmisión {a.n}: {e}\nSolo funciona en un servidor con systemd y como root.")
+            return 1
     elif a.cmd == "selftest":
         from .selftest import run as _selftest
         return _selftest(cfg)

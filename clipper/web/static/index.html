@@ -75,7 +75,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
 <section class="card" id="accard" style="margin-bottom:12px;border-color:#5a4d00"><h2>Configuración automática</h2>
  <div class="row"><button id="ac_go" class="big" style="margin:0;max-width:420px">✨ Configurar todo automáticamente</button></div>
  <div class="mut" style="font-size:13px;margin-top:8px">Ubica tu cámara (con la IA de tu API si la tienes), elige el diseño 9:16, aplica subtítulos estilo TikTok, ajusta los detectores y el modelo de voz a tu equipo y deja el modo automático «a revisión». Después solo revisa la previa. Puedes volver a pulsarlo cuando cambies de directo.</div>
- <div id="ac_rep" style="margin-top:10px;font-size:13px;line-height:1.7"></div></section>
+ <div id="ac_rep" style="margin-top:10px;font-size:13px;line-height:1.7"></div><div class="mut" id="multi" style="font-size:12px;margin-top:10px"></div></section>
 <section class="card" id="srccard" style="margin-bottom:12px"><h2>Fuente del directo <span id="src_plat" class="chip2"></span> <span id="src_state" class="mut" style="text-transform:none;letter-spacing:0"></span></h2>
  <div class="seg2" id="stype"><button data-t="live">📺 Twitch · Kick · YouTube</button><button data-t="rtmp">🎥 OBS (RTMP)</button><button data-t="file">🎞 Archivo de prueba</button></div>
  <div id="src_live" style="margin-top:12px"><label>Enlace del canal o del directo <input id="src_url" placeholder="https://www.twitch.tv/tucanal · https://kick.com/tucanal · https://www.youtube.com/@canal/live"></label>
@@ -336,6 +336,9 @@ async function status(){
  $("tr").textContent=s.transcript||"—";
  $("events").innerHTML=s.events.map(e=>`<div class="ev"><span class="mut">${e.t}</span> <b>${esc(e.kind)}</b> ${esc(e.detail)}</div>`).join("")||'<span class="mut">sin eventos</span>';
 }
+(function(){const p=+location.port||80,b=7848,i=p-b;const m=$("multi");if(!m)return;
+ const links=[1,2,3].map(n=>n-1===((i%3)+3)%3?`<b>Transmisión ${n} (esta)</b>`:`<a href="${location.protocol}//${location.hostname}:${b+n-1}/" target="_blank">Transmisión ${n}</a>`);
+ m.innerHTML="📡 Varias transmisiones a la vez: "+links.join(" · ")+" — se añaden en el servidor con <code>clipper add-stream 2</code> y <code>clipper add-stream 3</code>."})();
 const SEL=new Set();
 function selUpd(){$("sel_n").textContent=SEL.size+" seleccionados";$("sel_dl").disabled=$("sel_del").disabled=SEL.size===0;const v=window._clipsShown||[];$("sel_all").checked=v.length>0&&v.every(n=>SEL.has(n))}
 function selBind(){document.querySelectorAll("[data-sel]").forEach(i=>i.onchange=()=>{i.checked?SEL.add(i.dataset.sel):SEL.delete(i.dataset.sel);selUpd()});selUpd()}

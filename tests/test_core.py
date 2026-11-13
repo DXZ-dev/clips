@@ -72,3 +72,14 @@ def test_buffer_prune_and_reader(tmp_path):
     assert all(os.stat(p).st_nlink >= 2 for p in ci.workdir.glob("seg_*.ts"))   # hardlinks
     ci.cleanup()
     assert not ci.workdir.exists()
+
+
+def test_multi_stream_plan():
+    import pytest
+    from clipper import multi
+    from clipper.config import Config
+    p = multi.plan(Config(), 3, launcher="/x/clipper")
+    assert p["port"] == Config().server.port + 2 and "CLIPPER_STATE_DIR=" in p["unit"] and "ExecStart=/x/clipper serve" in p["unit"]
+    assert "CLIPPER__CLIP__OUTPUT_DIR=" in p["unit"]
+    with pytest.raises(ValueError):
+        multi.plan(Config(), 1)
