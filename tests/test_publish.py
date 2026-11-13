@@ -283,3 +283,10 @@ def test_web_publish_flow(tmp_path, clip, monkeypatch):
     assert "R-TOKEN-VALUE" not in c.get("/api/publish").text
     assert "S3CR3T-VALUE" not in c.get("/api/settings").text and "S3CR3T-VALUE" not in c.get("/api/status").text
     assert c.post("/api/publish/youtube/disconnect").status_code == 200
+
+
+def test_profanity_removed_from_titles():
+    from clipper.profanity import clean, has_profanity
+    assert clean("Esto es una mierda increíble, joder") == "Esto es una increíble"
+    assert "fuck" not in clean("what the fuck is that").lower() and has_profanity("Qué PUTA locura")
+    assert clean("¡Récord de decibelios!") == "¡Récord de decibelios!"

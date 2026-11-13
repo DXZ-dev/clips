@@ -155,6 +155,22 @@ def frame_jpeg(cfg: Config, name: str, t: float, width: int = 960) -> bytes:
     return r.stdout
 
 
+def download_name(cfg: Config, name: str) -> str:
+    """Nombre de archivo para descargar: el título generado del clip (sin malas palabras ni caracteres raros)."""
+    import re
+    import unicodedata
+    from .profanity import clean
+    j = out_dir(cfg) / (name[:-4] + ".json")
+    try:
+        title = json.loads(j.read_text()).get("title", "") if j.exists() else ""
+    except ValueError:
+        title = ""
+    t = unicodedata.normalize("NFC", clean(title or ""))
+    t = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" .")[:80]
+    return (t or name[:-4]) + ".mp4"
+
+
 def storage_used(cfg: Config) -> int:
     """Bytes que ocupan los clips y sus fuentes."""
     return sum(f.stat().st_size for f in out_dir(cfg).rglob("*") if f.is_file())

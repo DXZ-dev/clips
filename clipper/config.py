@@ -315,7 +315,7 @@ class LlmCfg(BaseModel):
 
 class AiCfg(BaseModel):
     llm: LlmCfg = LlmCfg()
-    auto_metadata: bool = False           # al encolar una publicación, generar título/descripción con la IA (sin revisión humana en modo auto)
+    auto_metadata: bool = True            # al encolar una publicación, generar título/descripción con la IA (sin revisión humana en modo auto)
 
 
 class VodCfg(BaseModel):

@@ -635,7 +635,7 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
     @app.get("/clips/{name}")
     def get_clip(name: str, download: bool = False):
         p = _safe(name)
-        return FileResponse(p, media_type="video/mp4", filename=name if download else None)
+        return FileResponse(p, media_type="video/mp4", filename=ed.download_name(engine.cfg, name) if download else None)
 
     @app.get("/api/clips/download.zip")
     def clips_zip(names: str = "", all: bool = False):
@@ -662,14 +662,18 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
         tmp.close()
         with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_STORED) as z:           # los mp4 ya van comprimidos: sin recomprimir
             for p in files:
-                z.write(p, p.name)
+                used = {i.filename for i in z.infolist()}
+                zn, k = ed.download_name(engine.cfg, p.name), 2
+                while zn in used:                                   # dos clips con el mismo título
+                    zn, k = ed.download_name(engine.cfg, p.name)[:-4] + f" ({k})" + ".mp4", k + 1
+                z.write(p, zn)
                 jm = p.with_suffix(".json")
                 if jm.exists():
                     try:
                         m = _json.loads(jm.read_text())
                         txt = (f"{m.get('title', '')}\n\n{m.get('transcript', '')}\n\nCanal: {m.get('platform', '')} {m.get('channel', '')}\n"
                                f"Motivo: {m.get('reason', '')} {m.get('detail', '')}\n")
-                        z.writestr(p.stem + ".txt", txt)
+                        z.writestr(zn[:-4] + ".txt", txt)
                     except ValueError:
                         pass
         return FileResponse(tmp.name, media_type="application/zip", filename=f"clips_{_time.strftime('%Y%m%d_%H%M%S')}.zip",

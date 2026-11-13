@@ -277,9 +277,11 @@ def test_bulk_zip_and_delete(cfg, source):
     r = c.get("/api/clips/download.zip", params={"names": f"{a},../x.mp4,nada.mp4"})
     assert r.status_code == 200
     names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
-    assert a in names and "clip_a.txt" in names and len(names) == 2
+    assert len(names) == 2 and any(n.endswith(".mp4") for n in names) and any(n.endswith(".txt") for n in names)
     assert c.get("/api/clips/download.zip", params={"names": "nada.mp4"}).status_code == 404
     assert len(zipfile.ZipFile(io.BytesIO(c.get("/api/clips/download.zip", params={"all": "true"}).content)).namelist()) == 4
+    cd = c.get(f"/clips/{a}", params={"download": "true"}).headers["content-disposition"]
+    assert ".mp4" in cd and "filename" in cd
     assert c.post("/api/clips/delete", json={"names": [a, "../x.mp4"]}).json() == {"deleted": 1}
     assert not (ed.out_dir(cfg) / a).exists() and (ed.out_dir(cfg) / b).exists()
     assert c.post("/api/clips/delete_all", json={}).status_code == 422

@@ -12,7 +12,8 @@ class _Safe(dict):
 
 
 def headline(transcript: str, reason: str, detail: str, limit: int = 70) -> str:
-    t = re.sub(r"\s+", " ", transcript or "").strip()
+    from ..profanity import clean
+    t = re.sub(r"\s+", " ", clean(transcript or "")).strip()
     if t:
         first = re.split(r"(?<=[.!?¡¿])\s", t)[0].strip(" ¡¿")
         first = first or t
@@ -30,4 +31,5 @@ def render(cfg: PublishCfg, meta: dict, title_limit: int = 100, desc_limit: int 
                   hashtags=" ".join(cfg.hashtags), date=(meta.get("created") or "")[:10])
     title = cfg.title_template.format_map(vars_).strip()
     desc = cfg.description_template.format_map(vars_).strip()
-    return title[:title_limit], desc[:desc_limit]
+    from ..profanity import clean
+    return clean(title)[:title_limit], clean(desc)[:desc_limit]
