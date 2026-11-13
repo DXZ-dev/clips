@@ -20,6 +20,9 @@ button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:8px;flex-wra
 #events{max-height:220px;overflow:auto;font-size:13px}.ev{padding:3px 0;border-bottom:1px solid var(--line)}.ev b{color:var(--ac);font-weight:600}
 .err{color:var(--bad)}#tr{font-style:italic;color:var(--mut);min-height:40px}
 #clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.cap{position:relative;width:300px;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden;cursor:crosshair;touch-action:none}.cap img{width:100%;height:100%;object-fit:fill;display:block;pointer-events:none;user-select:none}
+.capr{position:absolute;border:2px solid;box-sizing:border-box;display:none;pointer-events:none}
+#cb_sub{position:absolute;left:4%;width:92%;border:2px dashed #fff;background:rgba(255,255,255,.18);color:#fff;font-size:11px;font-weight:700;text-align:center;border-radius:6px;cursor:ns-resize;z-index:3;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
 #cb_wrap{position:relative;width:200px;aspect-ratio:9/16;background:linear-gradient(160deg,#1f3b2e,#16222c);border:1px solid #35d07f;border-radius:8px;touch-action:none}
 #cb_box{position:absolute;border:2px solid #ffd400;background:rgba(255,212,0,.18);border-radius:8px;cursor:move;box-sizing:border-box}#cb_box span{font-size:11px;padding:2px 5px;display:block}
 #cb_h{position:absolute;right:-1px;bottom:-1px;width:16px;height:16px;background:#ffd400;border-radius:3px 0 8px 0;cursor:nwse-resize}.clip{position:relative}.selbox{position:absolute;top:6px;left:6px;z-index:2;background:rgba(0,0,0,.6);border-radius:6px;padding:3px 7px;line-height:1}.clip video{width:100%;aspect-ratio:9/16;background:#000;border-radius:8px}.clip small{display:block;color:var(--mut)}
@@ -99,10 +102,18 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
    <div class="row"><button id="zn_save" class="sel">Guardar zonas</button><button id="zn_det">🔍 Detectar cámara</button><button id="zn_ai" title="Usa el modelo de visión de tu API (Gemini, Claude, GPT-4o…) para ubicar la cámara y los rostros">🤖 Detectar con IA</button><button id="zn_clr1">Quitar zona 1</button><button id="zn_auto">Cámara automática</button>
     <label class="chk" style="margin:0"><input type="checkbox" id="zn_lock"> Proporción fija de la zona 1 (si no, el recorte que hagas es exactamente lo que sale)</label>
     <label class="chk" style="margin:0"><input type="checkbox" id="zn_follow" checked> Seguir el rostro (con calma)</label>
-    <label class="mut" style="margin:0">Estilo <select id="zn_panels" style="display:inline-block;width:auto"><option value="cards">2 pantallas (tarjetas)</option><option value="overlay">Cámara sobre pantalla 1 (arrastrable)</option><option value="flush">Pegadas</option></select></label><label class="mut" style="margin:0">Zoom <input type="range" id="zn_zoom" min="100" max="200" value="115" style="width:90px;display:inline-block;vertical-align:middle"> <b id="zn_zv">1.15×</b></label></div><div id="cb_area" style="display:none;margin-top:10px"><div class="mut" style="font-size:12px;margin-bottom:6px">Lienzo del clip (9:16). <b>Pantalla 1</b> (recuadro verde del directo) llena todo el fondo; arrastra la caja para colocar la <b>pantalla 2</b> (cámara, recuadro de la cámara) y estira la esquina para cambiar su tamaño.</div>
- <div id="cb_wrap"><div id="cb_box"><span>2 · Cámara</span><i id="cb_h"></i></div></div></div>
-<div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
+    <label class="mut" style="margin:0">Estilo <select id="zn_panels" style="display:inline-block;width:auto"><option value="cards">2 pantallas (tarjetas)</option><option value="overlay">Cámara sobre pantalla 1 (arrastrable)</option><option value="flush">Pegadas</option></select></label><label class="mut" style="margin:0">Zoom <input type="range" id="zn_zoom" min="100" max="200" value="115" style="width:90px;display:inline-block;vertical-align:middle"> <b id="zn_zv">1.15×</b></label></div><div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
   <div class="mut" style="font-size:12px;margin-top:6px">«Directo oficial» es el reproductor de la propia plataforma (Twitch, Kick o YouTube): en vivo, sin retraso añadido. Los clips salen de la señal de clipper, que va unos segundos por detrás. Solo se carga mientras esta pestaña está abierta.</div></section>
+<section class="card" id="studio" style="margin-top:12px"><h2>Estudio de recorte <span class="mut" style="text-transform:none;letter-spacing:0">· 4 ventanas: directo, 2 capturas y clips</span></h2>
+ <div class="mut" style="font-size:12px;margin-bottom:8px">Dibuja con el ratón sobre cada captura la zona que quieres: lo que recortes es lo que se graba. En el lienzo 9:16 arrastra la cámara y la franja de subtítulos; el diseño y tamaño del texto se eligen en «Subtítulos».</div>
+ <div class="row" style="align-items:flex-start;gap:14px">
+  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b style="color:#35d07f">① Pantalla</b> (fondo del clip)</div><div class="cap" id="cap1"><img alt=""><div class="capr" style="border-color:#35d07f;background:rgba(53,208,127,.15)"></div></div></div>
+  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b style="color:#ffd400">② Cámara</b> (encima)</div><div class="cap" id="cap2"><img alt=""><div class="capr" style="border-color:#ffd400;background:rgba(255,212,0,.15)"></div></div></div>
+  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b>③ Lienzo del clip</b> 9:16</div><div id="cb_area"><div class="mut" style="font-size:12px;margin-bottom:6px">Lienzo del clip (9:16). <b>Pantalla 1</b> (recuadro verde del directo) llena todo el fondo; arrastra la caja para colocar la <b>pantalla 2</b> (cámara, recuadro de la cámara) y estira la esquina para cambiar su tamaño.</div>
+ <div id="cb_wrap"><div id="cb_sub">SUBTÍTULOS</div><div id="cb_box"><span>2 · Cámara</span><i id="cb_h"></i></div></div></div>
+</div>
+ </div>
+ <div class="row" style="margin-top:10px"><button id="st_save" class="sel">Guardar recortes</button><button id="st_ref">↻ Actualizar captura</button><span class="mut" id="st_msg"></span></div></section>
 <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
   <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
   <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto">Automático</button><button data-l="split">Cámara + gameplay</button><button data-l="fit">Completo</button></div>
@@ -119,7 +130,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   <label>Tipo de letra <select id="sb_font"></select></label>
   <label>Posición <select id="sb_pos"><option value="lower_third">Tercio inferior</option><option value="bottom">Abajo</option><option value="center">Centro</option><option value="seam">En la unión cámara / gameplay</option></select></label>
   <label>Tamaño: <b id="sb_sizev"></b> <input type="range" id="sb_size" min="40" max="160"></label>
-  <label>Subir / bajar: <b id="sb_offv"></b> <input type="range" id="sb_off" min="-400" max="400" step="10"></label>
+  <label>Subir / bajar: <b id="sb_offv"></b> <input type="range" id="sb_off" min="-960" max="960" step="10"></label>
   <label>Grosor del borde: <b id="sb_outv"></b> <input type="range" id="sb_out" min="0" max="20"></label>
   <label>Sombra: <b id="sb_shv"></b> <input type="range" id="sb_sh" min="0" max="12"></label>
   <label>Palabras por línea: <b id="sb_wpv"></b> <input type="range" id="sb_wp" min="1" max="6"></label>
@@ -556,14 +567,30 @@ $("ac_go").onclick=async()=>{const b=$("ac_go"),r=$("ac_rep");b.disabled=true;b.
 /* ---- directo en vivo (HLS) ---- */
 /* ---- reproductor oficial + zonas ---- */
 const ZN={z1:null,z2:null,on:false,pct:34,cb:{x:.05,y:.04,w:.9,h:.3}};
-function cbDraw(){const b=$("cb_box"),c=ZN.cb;Object.assign(b.style,{left:c.x*100+"%",top:c.y*100+"%",width:c.w*100+"%",height:c.h*100+"%"});$("cb_area").style.display=$("zn_panels").value==="overlay"?"block":"none"}
+function cbDraw(){const b=$("cb_box"),c=ZN.cb;Object.assign(b.style,{left:c.x*100+"%",top:c.y*100+"%",width:c.w*100+"%",height:c.h*100+"%"});const o=$("zn_panels").value==="overlay";b.style.display=o?"block":"none";const sb=$("cb_sub"),sz=+$("sb_size").value||80,off=+$("sb_off").value||0,ps=$("sb_pos").value;
+ const yc=ps==="center"?.5-off/1920:ps==="bottom"?.88-off/1920:ps==="lower_third"?.73-off/1920:.5-off/1920,hh=Math.min(.3,sz*1.5/1920);sb.style.top=Math.max(0,yc-hh/2)*100+"%";sb.style.height=hh*100+"%"}
 (function(){const w=$("cb_wrap"),b=$("cb_box"),h=$("cb_h");let m=null;const cl=(v,a,z)=>Math.min(Math.max(v,a),z);
  const down=(k)=>e=>{e.preventDefault();e.stopPropagation();m={k,x:e.clientX,y:e.clientY,c:{...ZN.cb}};b.setPointerCapture&&b.setPointerCapture(e.pointerId)};
  b.onpointerdown=down("mv");h.onpointerdown=down("rs");
  b.onpointermove=e=>{if(!m)return;const r=w.getBoundingClientRect(),dx=(e.clientX-m.x)/r.width,dy=(e.clientY-m.y)/r.height,c=ZN.cb;
   if(m.k==="mv"){c.x=cl(m.c.x+dx,0,1-c.w);c.y=cl(m.c.y+dy,0,1-c.h)}else{c.w=cl(m.c.w+dx,.2,1-c.x);c.h=cl(m.c.h+dy,.08,1-c.y)}cbDraw()};
  b.onpointerup=b.onpointercancel=()=>{m=null}})();
-$("zn_panels").addEventListener("change",cbDraw);let LVMODE="official",lvFrame="";
+$("zn_panels").addEventListener("change",cbDraw);
+["sb_off","sb_pos","sb_size"].forEach(i=>{$(i).addEventListener("input",cbDraw);$(i).addEventListener("change",cbDraw)});
+(function(){const w=$("cb_wrap"),b=$("cb_sub");let m=null;
+ b.onpointerdown=e=>{e.preventDefault();m={y:e.clientY,off:+$("sb_off").value||0,ps:$("sb_pos").value};b.setPointerCapture&&b.setPointerCapture(e.pointerId)};
+ b.onpointermove=e=>{if(!m)return;const r=w.getBoundingClientRect(),base=m.ps==="center"?.5:m.ps==="bottom"?.88:m.ps==="lower_third"?.73:.5;
+  const yc=Math.min(.95,Math.max(.05,base-m.off/1920+(e.clientY-m.y)/r.height));$("sb_pos").value="center";$("sb_off").value=Math.round((.5-yc)*1920/10)*10;cbDraw()};
+ b.onpointerup=b.onpointercancel=()=>{if(!m)return;m=null;["input","change"].forEach(t=>{$("sb_pos").dispatchEvent(new Event(t));$("sb_off").dispatchEvent(new Event(t))})}})();
+// capturas con recorte a ratón
+function capDraw(){[["cap1","z1"],["cap2","z2"]].forEach(([id,k])=>{const e=$(id).querySelector(".capr"),r=ZN[k];if(!r){e.style.display="none";return}Object.assign(e.style,{display:"block",left:r.x*100+"%",top:r.y*100+"%",width:r.w*100+"%",height:r.h*100+"%"})})}
+let capBusy=false;async function capRefresh(){if(capBusy||document.hidden||!$("studio").offsetParent)return;capBusy=true;try{const r=await fetch("/api/live/frame?w=640&t="+Date.now());if(r.ok){const u=URL.createObjectURL(await r.blob());for(const id of["cap1","cap2"]){const i=$(id).querySelector("img"),o=i.src;i.src=u;}setTimeout(()=>URL.revokeObjectURL(u),4000)}}catch(e){}capBusy=false}
+[["cap1","z1"],["cap2","z2"]].forEach(([id,k])=>{const el=$(id);let st=null;const pt=e=>{const r=el.getBoundingClientRect();return[Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))]};
+ el.onpointerdown=e=>{e.preventDefault();st=pt(e);el.setPointerCapture&&el.setPointerCapture(e.pointerId)};
+ el.onpointermove=e=>{if(!st)return;const p=pt(e);ZN[k]={x:Math.min(st[0],p[0]),y:Math.min(st[1],p[1]),w:Math.abs(p[0]-st[0]),h:Math.abs(p[1]-st[1])};capDraw();znDraw()};
+ el.onpointerup=el.onpointercancel=()=>{if(!st)return;st=null;const r=ZN[k];if(r&&(r.w<.03||r.h<.03))ZN[k]=null;capDraw();znDraw()}});
+$("st_ref").onclick=capRefresh;setInterval(capRefresh,3000);setTimeout(capRefresh,800);
+$("st_save").onclick=async()=>{const m=$("st_msg");try{await api("/api/settings",PUT({layout:{mode:"split",facecam:rnd(ZN.z2),gameplay_zone:rnd(ZN.z1),cam_follow:$("zn_follow").checked,panels:$("zn_panels").value,cam_box:rnd(ZN.cb),cam_zoom:+$("zn_zoom").value/100}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Recortes guardados</span>';pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};let LVMODE="official",lvFrame="";
 function embedUrl(u){try{const U=new URL(u),h=U.hostname.toLowerCase(),p=U.pathname.split("/").filter(Boolean);
  if(h.endsWith("twitch.tv")&&p[0]&&!["videos","directory","video"].includes(p[0]))return`https://player.twitch.tv/?channel=${encodeURIComponent(p[0])}&parent=${location.hostname}&muted=true&autoplay=true`;
  if(h.endsWith("kick.com")&&p[0]&&!["video","videos","categories"].includes(p[0]))return`https://player.kick.com/${encodeURIComponent(p[0])}?autoplay=true&muted=true`;
@@ -571,7 +598,7 @@ function embedUrl(u){try{const U=new URL(u),h=U.hostname.toLowerCase(),p=U.pathn
 document.querySelectorAll('input[name=lvs]').forEach(r=>r.onchange=()=>{LVMODE=r.value;lvTick(window._live)});
 function znRatio(){const v=$("lv_vid");return v.videoWidth&&v.videoHeight?v.videoWidth/v.videoHeight:16/9}
 function znAspect(){return 1080/(1920*(1-ZN.pct/100))}
-function znDraw(){for(const k of ["z1","z2"]){const e=$("zn_"+k[1]),r=ZN[k];if(!ZN.on||!r){e.style.display="none";continue}e.style.display="block";Object.assign(e.style,{left:r.x*100+"%",top:r.y*100+"%",width:r.w*100+"%",height:r.h*100+"%"})}}
+function znDraw(){try{capDraw()}catch(e){}for(const k of ["z1","z2"]){const e=$("zn_"+k[1]),r=ZN[k];if(!ZN.on||!r){e.style.display="none";continue}e.style.display="block";Object.assign(e.style,{left:r.x*100+"%",top:r.y*100+"%",width:r.w*100+"%",height:r.h*100+"%"})}}
 function znInit(){const r=znRatio();if(!ZN.z1){const w=.5,h=Math.min(.95,w*r/znAspect());ZN.z1={x:.25,y:Math.max(0,(1-h)/2),w,h}}if(!ZN.z2)ZN.z2={x:.02,y:.02,w:.28,h:.37}}
 function znSet(on){ZN.on=on;$("zn_tools").style.display=on?"block":"none";$("zn_edit").textContent=on?"✖ Cerrar marcado de zonas":"🎯 Marcar zonas sobre el directo";
  if(on){LVMODE="clipper";document.querySelector('input[name=lvs][value=clipper]').checked=true;$("lv_vid").controls=false;znInit()}else{$("lv_vid").controls=true}
