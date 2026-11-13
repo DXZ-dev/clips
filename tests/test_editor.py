@@ -169,3 +169,46 @@ def test_detect_facecam_on_synthetic_stream(tmp_path):
     # debe contener la cámara real (x 0.75..1, y 0.667..1) y estar pegada a la esquina inferior derecha
     assert r.x <= 0.76 and r.y <= 0.68 and r.x + r.w >= 0.99 and r.y + r.h >= 0.99
     assert detect_facecam(["-i", str(vid)], probe(str(vid)), cfg.model_copy(update={"reframe": cfg.reframe.model_copy(update={"detector": "none"})})) is None
+
+
+# ------------------------------------------------------------------ red de seguridad del render
+def test_trim_outside_source_is_adjusted_not_fatal(cfg, source, tmp_path):
+    from clipper.render import render_spec
+    meta = render_spec(cfg, source, EditSpec(layout="fit", trim_start=50, trim_end=55), tmp_path / "o.mp4")   # la fuente dura 5 s
+    assert "adjusted" in meta and probe(str(tmp_path / "o.mp4")).height == 1920
+
+
+def test_render_falls_back_to_static_then_fit(cfg, source, tmp_path, monkeypatch):
+    import clipper.render as R
+    real = R._run_ffmpeg
+    seen = []
+
+    def flaky(cfg_, input_args, graph, part, cwd, preview, fail_on=("clip(t-",)):
+        seen.append(graph[:40])
+        if any(f in graph for f in fail_on):                 # el recorte móvil «no funciona» en esta máquina
+            return None, "Failed to configure input pad on Parsed_crop_0 (simulado)"
+        return real(cfg_, input_args, graph, part, cwd, preview)
+
+    monkeypatch.setattr(R, "_run_ffmpeg", flaky)
+    # un movimiento real en el vídeo para que la trayectoria tenga pendiente
+    moving = tmp_path / "m.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x203040:s=640x360:r=25:d=6", "-f", "lavfi", "-i",
+                    "color=c=white:s=80x110:r=25:d=6", "-filter_complex", "[0][1]overlay=x='20+500*t/6':y=120", "-c:v", "libx264",
+                    "-preset", "ultrafast", str(moving)], check=True)
+    meta = R.render_spec(cfg, moving, EditSpec(layout="auto"), tmp_path / "a.mp4")
+    assert meta.get("fallback") == "static" and len(seen) >= 2 and probe(str(tmp_path / "a.mp4")).height == 1920
+    # si también falla el estático, cae a «completo»
+    monkeypatch.setattr(R, "_run_ffmpeg", lambda *a, **k: (None, "falla") if "x='" in a[2] else real(*a, **k))
+    meta = R.render_spec(cfg, moving, EditSpec(layout="auto"), tmp_path / "b.mp4")
+    assert meta.get("fallback") == "fit"
+    # si todo falla, el error trae contexto para diagnosticar
+    monkeypatch.setattr(R, "_run_ffmpeg", lambda *a, **k: (None, "boom"))
+    with pytest.raises(RuntimeError, match=r"entrada 640x360.*boom"):
+        R.render_spec(cfg, moving, EditSpec(layout="auto"), tmp_path / "c.mp4")
+
+
+def test_selftest_passes_on_this_machine(cfg):
+    from clipper import selftest
+    lines = []
+    assert selftest.run(cfg, out=lines.append) == 0, "\n".join(lines)
+    assert any("clip desde el buffer" in l and "OK" in l for l in lines)

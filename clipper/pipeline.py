@@ -40,14 +40,21 @@ def clip_from_range(cfg: Config, t0: float, t1: float, words_abs: list[Word] | N
         else:
             tmp = tempfile.TemporaryDirectory(prefix="src_")
             src = Path(tmp.name) / f"{stem}.src.mp4"
-        subprocess.run([require("ffmpeg"), "-y", "-v", "error", "-nostdin", "-f", "concat", "-safe", "0",
-                        "-i", str(ci.workdir / "list.txt"), "-c", "copy", "-movflags", "+faststart", str(src)],
-                       check=True, capture_output=True)
-        sdur = ffduration(str(src))
+        r = subprocess.run([require("ffmpeg"), "-y", "-v", "error", "-nostdin", "-f", "concat", "-safe", "0",
+                            "-i", str(ci.workdir / "list.txt"), "-c", "copy", "-movflags", "+faststart", str(src)],
+                           capture_output=True, text=True)
+        sdur = ffduration(str(src)) if r.returncode == 0 and src.exists() else 0.0
+        if sdur < 1.0:
+            raise RuntimeError(f"No se pudo preparar el vídeo fuente del clip (duración {sdur:.1f} s): {r.stderr.strip()[-300:]}")
         seg0 = ci.seg_start
         words = [EditWord(start=max(0.0, w.start - seg0), end=max(0.0, w.end - seg0), text=w.text)
                  for w in (words_abs or []) if w.text.strip()]
-        spec = default_spec(cfg, words, max(0.0, t0 - seg0), min(t1 - seg0, sdur))
+        # El recorte pedido debe caer dentro de la fuente guardada; si los tiempos del buffer no cuadran, se ajusta.
+        ts = max(0.0, min(t0 - seg0, sdur - 1.0))
+        te = min(max(t1 - seg0, ts + 1.0), sdur)
+        if abs(ts - (t0 - seg0)) > 0.5:
+            log.warning("recorte fuera de la fuente (pedido %.1f s, fuente %.1f s): ajustado a %.1f–%.1f", t0 - seg0, sdur, ts, te)
+        spec = default_spec(cfg, words, ts, te)
         out = out_dir(cfg) / f"{stem}.mp4"
         finalize(cfg, stem, src, spec, out, {"reason": reason, "detail": detail})
         if tmp:

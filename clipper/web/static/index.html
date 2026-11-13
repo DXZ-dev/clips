@@ -142,9 +142,9 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
   </fieldset>
   <fieldset><legend>IA de texto (ganchos, títulos, descripciones)</legend>
    <label class="chk"><input type="checkbox" id="i_on"> Activada</label>
-   <label>Proveedor <select id="i_prov"><option value="openai">Compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)</option><option value="anthropic">Anthropic (Claude)</option></select></label>
+   <label>Proveedor <select id="i_prov"><option value="openai">Compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)</option><option value="anthropic">Anthropic (Claude)</option><option value="gemini">Google Gemini</option></select></label>
    <label>URL base <input id="i_url" placeholder="vacío = la del proveedor · p. ej. http://localhost:11434/v1"></label>
-   <label>Modelo <input id="i_model" placeholder="gpt-4o-mini · claude-haiku-5-5 · llama3.1"></label>
+   <label>Modelo <input id="i_model" placeholder="gpt-4o-mini · claude-haiku-5-5 · gemini-2.5-flash · llama3.1"></label>
    <label>Clave de API <input id="i_key" type="password" autocomplete="off"></label>
    <label class="chk"><input type="checkbox" id="i_clear"> Borrar la clave guardada</label>
    <label>Idioma de salida <input id="i_lang" placeholder="es"></label>

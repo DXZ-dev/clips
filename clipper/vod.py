@@ -25,7 +25,7 @@ from .config import Config
 from .detect.transcriber import LiveTranscriber
 from .detect.triggers import CadenceDetector, EnergyDetector, KeywordMatcher, Trigger
 from .editor import finalize, out_dir, src_dir
-from .ffutil import duration as ffduration, require
+from .ffutil import duration as ffduration, find_tool, require
 from .spec import EditWord, default_spec
 from .subtitles import Word
 
@@ -231,7 +231,7 @@ class VideoManager:
     def submit_url(self, url: str, mode: str, opts: dict) -> VideoJob:
         if not re.match(r"^https?://[^\s]+$", url) or url.startswith("-"):
             raise ValueError("Pega un enlace http(s) válido.")
-        if not shutil.which("yt-dlp"):
+        if not find_tool("yt-dlp"):
             raise ValueError("Para analizar enlaces hace falta yt-dlp (viene en requirements.txt; en Docker ya está incluido).")
         job = VideoJob(name=url[:120], mode=mode, opts=opts, url=url, status="queued", message="En cola")
         self.jobs[job.id] = job
@@ -291,8 +291,9 @@ class VideoManager:
     def _download(self, job: VideoJob) -> Path:
         d = self.tmp_dir()
         tmpl = d / f"dl_{job.id}.%(ext)s"
-        cmd = [shutil.which("yt-dlp"), "--no-playlist", "--newline", "-f", "bv*[height<=1080]+ba/b[height<=1080]/b",
-               "--merge-output-format", "mp4", "-o", str(tmpl), "--", job.url]
+        from .links import cookies_args, explain_ytdlp, platform_of
+        cmd = [find_tool("yt-dlp"), "--no-playlist", "--newline", "-f", "bv*[height<=1080]+ba/b[height<=1080]/b",
+               "--merge-output-format", "mp4", *cookies_args(self.cfg), "-o", str(tmpl), "--", job.url]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         cb = self._progress(job, 0.0, 0.1)
         last = ""
@@ -309,7 +310,7 @@ class VideoManager:
             p.wait()
         files = sorted(d.glob(f"dl_{job.id}.*"))
         if p.returncode != 0 or not files:
-            raise RuntimeError(f"No se pudo descargar el enlace: {last[:200]}")
+            raise RuntimeError(explain_ytdlp(last, platform_of(job.url or "")))
         return files[0]
 
     def _run(self, job: VideoJob) -> None:

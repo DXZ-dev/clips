@@ -214,3 +214,30 @@ def test_ensure_whisper_logic(tmp_path, monkeypatch):
     cfg.transcribe.provider, cfg.transcribe.model = "local", "base"
     monkeypatch.setenv("CLIPPER_AUTO_DOWNLOAD", "0")
     assert models.ensure_whisper(cfg) == "skip" and calls == ["tiny"]
+
+
+def test_gemini_request_and_parse():
+    seen = {}
+
+    def h(req):
+        seen.update(url=str(req.url), key=req.headers.get("x-goog-api-key"), body=json.loads(req.content))
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "```json\n" + GOOD + "\n```"}]}}]})
+
+    cfg = llm(provider="gemini", base_url="", model="gemini-2.5-flash")
+    out = ai.suggest(cfg, "mira esto", "keyword", http=mock(h))
+    assert out["title"] == "Lo que pasó al final"
+    assert seen["url"] == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    assert seen["key"] == "K" and "K" not in seen["url"]                                   # la clave va en cabecera, no en la URL
+    b = seen["body"]
+    assert b["systemInstruction"]["parts"][0]["text"] and b["contents"][0]["role"] == "user"
+    assert b["generationConfig"]["maxOutputTokens"] >= 1024
+    # filtrado de seguridad / respuesta vacía
+    blocked = mock(lambda r: httpx.Response(200, json={"candidates": [{"finishReason": "SAFETY"}]}))
+    with pytest.raises(ai.AiError, match="SAFETY"):
+        ai.complete(cfg, "s", "u", http=blocked)
+    # clave inválida (Google responde 400 con «API key not valid»)
+    bad = mock(lambda r: httpx.Response(400, text='{"error":{"message":"API key not valid. Please pass a valid API key."}}'))
+    with pytest.raises(ai.AiError, match="clave"):
+        ai.complete(cfg, "s", "u", http=bad)
+    with pytest.raises(ai.AiError, match="Falta la clave"):
+        ai.complete(llm(provider="gemini", api_key="", model="m"), "s", "u", http=mock(lambda r: httpx.Response(200)))

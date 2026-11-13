@@ -54,13 +54,17 @@ def _cam_crop(info: VideoInfo, rect: RectCfg, face: tuple[float, float] | None, 
     return _even(px), _even(py), pw, ph
 
 
-def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[str]) -> tuple[str, int | None, dict]:
+def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[str], static: bool = False,
+                cache: dict | None = None) -> tuple[str, int | None, dict]:
     """Devuelve (filtergraph terminado en [v0], y de la unión cámara/gameplay o None, info de lo decidido)."""
     W, H = cfg.reframe.width, cfg.reframe.height
     note: dict = {"layout": spec.layout}
     rect = None
+    cache = cache if cache is not None else {}
     if spec.layout == "split":
-        rect = spec.facecam or detect_facecam(input_args, info, cfg)
+        if "rect" not in cache:
+            cache["rect"] = spec.facecam or detect_facecam(input_args, info, cfg)
+        rect = cache["rect"]
         if rect is None:
             note.update(layout="auto", warning="no se encontró la cámara: se usó el diseño automático")
         else:
@@ -72,13 +76,17 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
     if note["layout"] == "split":
         cam_h = _even(H * spec.facecam_height_pct / 100)
         game_h = H - cam_h
-        face = face_center_in(input_args, info, cfg, rect)
+        if "face" not in cache:
+            cache["face"] = face_center_in(input_args, info, cfg, rect)
+        face = cache["face"]
         px, py, pw, ph = _cam_crop(info, rect, face, W, cam_h)
         cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={W}:{cam_h}:flags=lanczos[cam]"
         if spec.gameplay == "cover":
-            path = analyze(input_args, info, cfg, out_w=W, out_h=game_h, ignore=rect, faces=False)
+            if "game_path" not in cache:
+                cache["game_path"] = analyze(input_args, info, cfg, out_w=W, out_h=game_h, ignore=rect, faces=False)
+            path = cache["game_path"]
             g = path.geom
-            game = (f"[s2]crop=w={g.crop_w}:h={g.crop_h}:x='{path.x_expr()}':y={g.y},"
+            game = (f"[s2]crop=w={g.crop_w}:h={g.crop_h}:x='{path.static_x() if static else path.x_expr()}':y={g.y},"
                     f"scale={W}:{game_h}:flags=lanczos[game]")
         else:
             game = _contain("[s2]", "[game]", W, game_h, cfg.layout.blur_strength)
@@ -87,60 +95,93 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         note.update(face_in_cam=bool(face))
         return graph, (cam_h if spec.facecam_position == "top" else game_h), note
 
-    path = analyze(input_args, info, cfg)           # auto: sigue al hablante / acción
+    if "path" not in cache:
+        cache["path"] = analyze(input_args, info, cfg)           # auto: sigue al hablante / acción
+    path = cache["path"]
     g = path.geom
-    graph = (f"[0:v]crop=w={g.crop_w}:h={g.crop_h}:x='{path.x_expr()}':y={g.y},"
+    graph = (f"[0:v]crop=w={g.crop_w}:h={g.crop_h}:x='{path.static_x() if static else path.x_expr()}':y={g.y},"
              f"scale={W}:{H}:flags=lanczos,setsar=1[v0]")
     return graph, None, note
 
 
+def _run_ffmpeg(cfg: Config, input_args: list[str], graph: str, part: Path, cwd: str, preview: bool) -> tuple[str | None, str]:
+    """Ejecuta ffmpeg (NVENC con respaldo a libx264). Devuelve (encoder usado | None, stderr del último intento)."""
+    enc = "libx264" if preview else pick_encoder(cfg.render.encoder, cfg.compute.device)
+    err = ""
+    for attempt in dict.fromkeys((enc, "libx264")):
+        cmd = [require("ffmpeg"), "-y", "-v", "error", "-nostdin", *input_args,
+               "-filter_complex", graph, "-map", "[v]", "-map", "0:a:0?",
+               *_encoder_args(attempt, cfg, preview), "-pix_fmt", "yuv420p",
+               "-c:a", "aac", "-b:a", "96k" if preview else cfg.render.audio_bitrate,
+               "-movflags", "+faststart", "-f", "mp4", str(part)]
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+        if r.returncode == 0:
+            return attempt, ""
+        part.unlink(missing_ok=True)
+        err = r.stderr.strip()
+        log.warning("ffmpeg falló con %s: %s", attempt, err[-300:])
+    return None, err
+
+
 def render_spec(cfg: Config, src: Path, spec: EditSpec, out_path: Path, preview: bool = False) -> dict:
-    """Renderiza `src` según `spec` a out_path (escritura atómica). Devuelve metadatos del render."""
+    """Renderiza `src` según `spec` a out_path (escritura atómica). Devuelve metadatos del render.
+
+    Red de seguridad: si el recorte móvil falla se reintenta con recorte fijo y, si también falla, con el diseño «completo»;
+    un clip no debería perderse por una rareza de una versión de ffmpeg. El recorte se ajusta si cae fuera del vídeo."""
+    import tempfile
     src = Path(src).resolve()                       # el render corre con otro cwd
     info = probe(str(src))
-    end = min(spec.trim_end if spec.trim_end is not None else info.duration or 1e9, info.duration or 1e9)
-    dur = max(1.0, end - spec.trim_start)
-    input_args = ["-ss", f"{spec.trim_start:.3f}", "-t", f"{dur:.3f}", "-i", str(src)]
-    graph, seam_y, note = build_graph(cfg, spec, info, input_args)
+    total = info.duration or 0.0
+    want = (spec.trim_end - spec.trim_start) if spec.trim_end is not None else None
+    start = spec.trim_start
+    adjusted = None
+    if total and start >= total - 0.5:              # el recorte empieza fuera del vídeo guardado: se usa el final
+        start = max(0.0, total - (want or 30.0))
+        adjusted = f"el inicio ({spec.trim_start:.1f} s) caía fuera de la fuente ({total:.1f} s)"
+    end = min(spec.trim_end if spec.trim_end is not None else (total or 1e9), total or 1e9)
+    if end - start < 1.0:
+        end = min(total or 1e9, start + (want or 30.0))
+    dur = max(1.0, end - start)
+    input_args = ["-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", str(src)]
 
-    # subtítulos + gancho + marca de agua en un único .ass
     words = []
     for w in spec.words:
-        s, e = w.start - spec.trim_start, w.end - spec.trim_start
-        if e > 0 and s < dur and w.text.strip():
-            words.append(Word(max(0.0, s), min(dur, e), w.text))
+        s0, e0 = w.start - start, w.end - start
+        if e0 > 0 and s0 < dur and w.text.strip():
+            words.append(Word(max(0.0, s0), min(dur, e0), w.text))
     st = spec.subtitles
-    pos = st.position or ("seam" if note["layout"] == "split" else None)
-    sub_cfg = with_preset(cfg.subtitles, st.preset, highlight_color=st.highlight_color,
-                          primary_color=st.primary_color, font_size=st.font_size, position=pos, uppercase=st.uppercase)
     hook = (spec.hook.text, spec.hook.seconds) if spec.hook.text.strip() else None
     mark = (spec.watermark.text, spec.watermark.corner) if spec.watermark.text.strip() else None
-    ass = build_ass(words if st.enabled else [], sub_cfg, cfg.reframe.width, cfg.reframe.height,
-                    seam_y=seam_y, hook=hook, watermark=mark, duration=dur)
-    has_ass = (st.enabled and words) or hook or mark
-    graph += (";[v0]ass=subs.ass[v1]" if has_ass else ";[v0]null[v1]")
-    graph += ";[v1]scale=540:960[v]" if preview else ";[v1]null[v]"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     part = out_path.resolve().with_name(out_path.name + ".part")   # el clip no existe hasta estar completo
-    import tempfile
+    cache: dict = {}
+    variants = ["normal"] if spec.layout == "fit" else ["normal", "static", "fit"]
+    last_err = ""
     with tempfile.TemporaryDirectory(prefix="render_") as wd:
-        if has_ass:
-            (Path(wd) / "subs.ass").write_text(ass, encoding="utf-8")   # ruta relativa + cwd evita escapes
-        enc = "libx264" if preview else pick_encoder(cfg.render.encoder, cfg.compute.device)
-        for attempt in dict.fromkeys((enc, "libx264")):
-            cmd = [require("ffmpeg"), "-y", "-v", "error", "-nostdin", *input_args,
-                   "-filter_complex", graph, "-map", "[v]", "-map", "0:a:0?",
-                   *_encoder_args(attempt, cfg, preview), "-pix_fmt", "yuv420p",
-                   "-c:a", "aac", "-b:a", "96k" if preview else cfg.render.audio_bitrate,
-                   "-movflags", "+faststart", "-f", "mp4", str(part)]
-            r = subprocess.run(cmd, cwd=wd, capture_output=True, text=True)
-            if r.returncode == 0:
+        for variant in variants:
+            sv = spec.model_copy(update={"layout": "fit"}) if variant == "fit" else spec
+            graph, seam_y, note = build_graph(cfg, sv, info, input_args, static=(variant == "static"), cache=cache)
+            pos = st.position or ("seam" if note["layout"] == "split" else None)
+            sub_cfg = with_preset(cfg.subtitles, st.preset, highlight_color=st.highlight_color,
+                                  primary_color=st.primary_color, font_size=st.font_size, position=pos, uppercase=st.uppercase)
+            ass = build_ass(words if st.enabled else [], sub_cfg, cfg.reframe.width, cfg.reframe.height,
+                            seam_y=seam_y, hook=hook, watermark=mark, duration=dur)
+            has_ass = bool((st.enabled and words) or hook or mark)
+            graph += (";[v0]ass=subs.ass[v1]" if has_ass else ";[v0]null[v1]")
+            graph += ";[v1]scale=540:960[v]" if preview else ";[v1]null[v]"
+            if has_ass:
+                (Path(wd) / "subs.ass").write_text(ass, encoding="utf-8")   # ruta relativa + cwd evita escapes
+            enc, err = _run_ffmpeg(cfg, input_args, graph, part, wd, preview)
+            if enc:
                 os.replace(part, out_path.resolve())
-                return {**note, "encoder": attempt, "duration": round(dur, 2), "source_resolution": f"{info.width}x{info.height}"}
-            part.unlink(missing_ok=True)
-            log.warning("ffmpeg falló con %s: %s", attempt, r.stderr.strip()[-400:])
-            if attempt == "libx264":
-                raise RuntimeError(f"Render falló: {r.stderr.strip()[-800:]}")
-            log.warning("Reintentando con libx264")
-    raise AssertionError
+                meta = {**note, "encoder": enc, "duration": round(dur, 2), "source_resolution": f"{info.width}x{info.height}"}
+                if variant != "normal":
+                    meta["fallback"] = variant
+                    log.warning("render con respaldo '%s' (el normal falló): %s", variant, last_err[-200:])
+                if adjusted:
+                    meta["adjusted"] = adjusted
+                return meta
+            last_err = err
+    ctx = f"entrada {info.width}x{info.height}, {total:.1f} s, recorte {start:.1f}–{start + dur:.1f} s, diseño {spec.layout}"
+    raise RuntimeError(f"Render falló ({ctx}): {last_err[-700:]}")

@@ -33,6 +33,7 @@ def main(argv=None) -> int:
     dm.add_argument("name", nargs="?", default="small")
     sp = sub.add_parser("set-password", help="Pone o cambia la contraseña del panel (necesaria para abrirlo a la red)")
     sp.add_argument("--stdin", action="store_true", help="leer la contraseña de la entrada estándar (sin preguntar)")
+    sub.add_parser("selftest", help="Comprueba que el render y el camino de directo funcionan en esta máquina")
     sub.add_parser("ensure-models", help="Descarga el modelo Whisper configurado si falta (lo usa el contenedor Docker)")
     tr = sub.add_parser("transcribe", help="Transcribe un archivo a JSON de palabras (para --words)")
     tr.add_argument("input"); tr.add_argument("-o", "--out")
@@ -94,6 +95,9 @@ def main(argv=None) -> int:
                "downloaded": f"Whisper '{cfg.transcribe.model}' descargado"}[r])
     elif a.cmd == "run":
         _run_terminal(cfg)
+    elif a.cmd == "selftest":
+        from .selftest import run as _selftest
+        return _selftest(cfg)
     elif a.cmd == "set-password":
         import getpass
         from . import auth

@@ -5,12 +5,23 @@ import functools
 import json
 import logging
 import shutil
+import sys
+from pathlib import Path
 import subprocess
 from dataclasses import dataclass
 
 
-def require(binary: str) -> str:
+def find_tool(binary: str) -> str | None:
+    """Ruta de un ejecutable: primero el PATH y, si no está (p. ej. bajo systemd), la carpeta del entorno virtual."""
     p = shutil.which(binary)
+    if p:
+        return p
+    cand = Path(sys.executable).parent / binary
+    return str(cand) if cand.is_file() else None
+
+
+def require(binary: str) -> str:
+    p = find_tool(binary)
     if not p:
         raise RuntimeError(f"'{binary}' no está instalado (sudo apt install ffmpeg)")
     return p
@@ -99,5 +110,5 @@ def hw_report() -> dict:
         "ffmpeg": shutil.which("ffmpeg"), "nvidia_gpu": nvidia,
         "h264_nvenc": _encoder_works("h264_nvenc"), "hevc_nvenc": _encoder_works("hevc_nvenc"),
         "cuda_whisper": cuda_available(), "encoder": pick_encoder("auto"),
-        "streamlink": shutil.which("streamlink"), "yt-dlp": shutil.which("yt-dlp"),
+        "streamlink": find_tool("streamlink"), "yt-dlp": find_tool("yt-dlp"),
     }

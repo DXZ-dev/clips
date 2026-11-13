@@ -11,7 +11,8 @@ import httpx
 
 from .config import LlmCfg
 
-DEFAULT_BASE = {"openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com"}
+DEFAULT_BASE = {"openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com",
+                "gemini": "https://generativelanguage.googleapis.com/v1beta"}
 
 
 class AiError(RuntimeError):
@@ -24,7 +25,7 @@ def _client(http: httpx.Client | None) -> httpx.Client:
 
 def _explain(r: httpx.Response) -> AiError:
     txt = re.sub(r"\s+", " ", r.text)[:200]
-    if r.status_code in (401, 403):
+    if r.status_code in (401, 403) or (r.status_code == 400 and "api key not valid" in r.text.lower()):
         return AiError(f"El servicio rechazó la clave o no tienes permiso (HTTP {r.status_code}). Revisa la clave y el modelo.")
     if r.status_code == 404:
         return AiError(f"Endpoint o modelo no encontrado (HTTP 404). Revisa la URL base y el nombre del modelo. {txt}")
@@ -50,6 +51,25 @@ def complete(cfg: LlmCfg, system: str, user: str, max_tokens: int = 500, http: h
             if r.status_code >= 400:
                 raise _explain(r)
             return "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
+
+        if cfg.provider == "gemini":
+            if not cfg.api_key:
+                raise AiError("Falta la clave de API de Gemini (Ajustes → IA). Créala gratis en Google AI Studio.")
+            model = cfg.model if cfg.model.startswith("models/") else f"models/{cfg.model}"
+            r = c.post(f"{base}/{model}:generateContent", headers={"x-goog-api-key": cfg.api_key},    # en cabecera: no queda en logs de URL
+                       json={"systemInstruction": {"parts": [{"text": system}]},
+                             "contents": [{"role": "user", "parts": [{"text": user}]}],
+                             "generationConfig": {"temperature": min(cfg.temperature, 2.0),
+                                                  "maxOutputTokens": max(max_tokens * 4, 1024)}})   # los modelos con «pensamiento» gastan parte
+            if r.status_code >= 400:
+                raise _explain(r)
+            j = r.json()
+            cands = j.get("candidates") or []
+            text = "".join(p.get("text", "") for p in ((cands[0].get("content") or {}).get("parts") or [])) if cands else ""
+            if not text.strip():
+                why = (cands[0].get("finishReason") if cands else None) or (j.get("promptFeedback") or {}).get("blockReason") or "vacía"
+                raise AiError(f"Gemini no devolvió texto (motivo: {why}). Si es SAFETY/BLOCK, el contenido fue filtrado; prueba con otro modelo.")
+            return text.strip()
 
         headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}   # Ollama/LM Studio no piden clave
         body = {"model": cfg.model, "temperature": cfg.temperature, "max_tokens": max_tokens,

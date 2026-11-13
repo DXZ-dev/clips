@@ -253,6 +253,12 @@ class CropPath:
     cx: list[float]            # centro X normalizado por muestra
     geom: CropGeometry
 
+    def static_x(self) -> str:
+        """Posición fija (px) del recorte: la mediana de la trayectoria. Respaldo si el recorte móvil no funciona."""
+        g = self.geom
+        xs = sorted(min(max(c * g.src_w - g.crop_w / 2, 0), g.src_w - g.crop_w) for c in self.cx)
+        return f"{xs[len(xs) // 2]:.2f}"
+
     def x_expr(self) -> str:
         """Expresión ffmpeg (función de t) lineal a tramos para el borde izquierdo del recorte, en px."""
         g = self.geom

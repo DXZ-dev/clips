@@ -178,7 +178,12 @@ class RollingBuffer:
     def _ingest_loop(self) -> None:
         plan = build_plan(self.cfg)
         log.info("Ingesta: %s", plan.description)
+        attempt = 0
         while not self._stop.is_set():
+            started = time.time()
+            if plan.producers:
+                plan.producer = plan.producers[attempt % len(plan.producers)]   # streamlink -> yt-dlp -> streamlink…
+            attempt += 1
             self._wipe()  # tras una reconexión los timestamps se reinician: empezamos limpio
             cmd = self._ffmpeg_cmd(plan)
             log.debug("ffmpeg: %s", " ".join(cmd))
@@ -206,7 +211,11 @@ class RollingBuffer:
                         p.terminate()
             if not plan.restart or self._stop.is_set():
                 break
-            self._stop.wait(2.0)
+            if plan.producers and time.time() - started < 20:
+                self.last_error = "Sin señal: ¿el canal está en directo? Se reintenta cada 15 s."
+                self._stop.wait(15.0)
+            else:
+                self._stop.wait(2.0)
 
     # ---- descarte de lo antiguo
     def _prune_loop(self) -> None:

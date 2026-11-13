@@ -16,7 +16,7 @@ STATE = Path(os.environ.get("CLIPPER_STATE_DIR") or ROOT).expanduser().resolve()
 
 
 class SourceCfg(BaseModel):
-    type: Literal["file", "rtmp", "hls", "streamlink", "ytdlp"] = "file"
+    type: Literal["file", "live", "rtmp", "hls", "streamlink", "ytdlp"] = "file"   # live = enlace de Twitch / Kick / YouTube (automático)
     url: str = ""
     rtmp_listen: bool = True
     streamlink_quality: str = "best"
@@ -35,7 +35,7 @@ class SourceCfg(BaseModel):
 
     @model_validator(mode="after")
     def _scheme(self):
-        ok = {"rtmp": ("rtmp://", "rtmps://"), "hls": ("http://", "https://"),
+        ok = {"rtmp": ("rtmp://", "rtmps://"), "hls": ("http://", "https://"), "live": ("http://", "https://"),
               "streamlink": ("http://", "https://"), "ytdlp": ("http://", "https://")}
         if self.url and self.type in ok and not self.url.startswith(ok[self.type]):
             raise ValueError(f"para type={self.type} la URL debe empezar por {' o '.join(ok[self.type])}")
@@ -261,9 +261,9 @@ class PublishCfg(BaseModel):
 class LlmCfg(BaseModel):
     """Modelo de lenguaje para sugerir ganchos, títulos y descripciones. Todo se configura desde el panel."""
     enabled: bool = False
-    provider: Literal["openai", "anthropic"] = "openai"   # openai = cualquier API compatible (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)
-    base_url: str = ""                    # vacío = la del proveedor (https://api.openai.com/v1 | https://api.anthropic.com)
-    model: str = ""                       # p. ej. gpt-4o-mini · claude-haiku-4-5 · llama3.1 (Ollama)
+    provider: Literal["openai", "anthropic", "gemini"] = "openai"   # openai = cualquier API compatible (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)
+    base_url: str = ""                    # vacío = la del proveedor (OpenAI, Anthropic o Google Gemini)
+    model: str = ""                       # p. ej. gpt-4o-mini · claude-haiku-5-5 · gemini-2.5-flash · llama3.1 (Ollama)
     api_key: str = Field("", exclude=True, repr=False)
     language: str = "es"
     temperature: float = Field(0.7, ge=0, le=2)
@@ -290,6 +290,7 @@ class VodCfg(BaseModel):
     merge_window_seconds: float = 20.0           # disparos más cercanos que esto cuentan como un único momento
     use_transcription: bool = True               # false = solo picos de volumen (mucho más rápido)
     max_upload_gb: float = Field(20.0, gt=0)
+    cookies_file: str = ""                       # cookies.txt (formato Netscape) para yt-dlp; ruta relativa a la carpeta de datos
 
 
 class ServerCfg(BaseModel):
