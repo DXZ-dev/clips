@@ -244,6 +244,8 @@ def render_spec(cfg: Config, src: Path, spec: EditSpec, out_path: Path, preview:
     un clip no debería perderse por una rareza de una versión de ffmpeg. El recorte se ajusta si cae fuera del vídeo."""
     import tempfile
     src = Path(src).resolve()                       # el render corre con otro cwd
+    if cfg.source.type == "live" and cfg.source.url2:   # colaboración: la fuente ya viene apilada 9:16
+        spec = spec.model_copy(update={"layout": "fit"})
     info = probe(str(src))
     total = info.duration or 0.0
     want = (spec.trim_end - spec.trim_start) if spec.trim_end is not None else None

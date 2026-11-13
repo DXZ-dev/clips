@@ -18,6 +18,7 @@ STATE = Path(os.environ.get("CLIPPER_STATE_DIR") or ROOT).expanduser().resolve()
 class SourceCfg(BaseModel):
     type: Literal["file", "live", "rtmp", "hls", "streamlink", "ytdlp"] = "file"   # live = enlace de Twitch / Kick / YouTube (automático)
     url: str = ""
+    url2: str = ""                          # 2.º directo (colaboración): se apilan los dos, uno arriba y otro abajo
     rtmp_listen: bool = True
     streamlink_quality: str = "best"
     file: str = "./samples/test.mp4"
@@ -25,7 +26,7 @@ class SourceCfg(BaseModel):
     file_follow: bool = False
 
 
-    @field_validator("url")
+    @field_validator("url", "url2")
     @classmethod
     def _no_flag_injection(cls, v: str) -> str:
         v = v.strip()

@@ -15,6 +15,7 @@ class IngestPlan:
     ffmpeg_input: list[str]                 # argumentos de entrada de ffmpeg
     producer: list[str] | None = None       # proceso que escribe a stdout (streamlink/yt-dlp)
     producers: list[list[str]] = field(default_factory=list)   # alternativas: si una falla se prueba la siguiente
+    producers2: list[list[str]] = field(default_factory=list)  # colaboración: productores del 2.º directo
     restart: bool = True                    # reiniciar si cae (directos). Un archivo sin loop no.
     description: str = field(default="")
 
@@ -48,14 +49,22 @@ def build_plan(cfg: Config) -> IngestPlan:
         from .links import cookies_args, platform_of
         sl, yd = find_tool("streamlink"), find_tool("yt-dlp")
         plat = platform_of(s.url)
-        cands: list[list[str]] = []
-        if sl:
-            extra = ["--twitch-low-latency"] if plat == "twitch" else []
-            cands.append([sl, "--stdout", "--quiet", "--retry-streams", "5", *extra, s.url, s.streamlink_quality])
-        if yd:
-            cands.append([yd, "-q", "--no-part", "--hls-use-mpegts", "-f", "best", *cookies_args(cfg), "-o", "-", "--", s.url])
+
+        def cands_for(url: str) -> list[list[str]]:
+            out: list[list[str]] = []
+            if sl:
+                extra = ["--twitch-low-latency"] if platform_of(url) == "twitch" else []
+                out.append([sl, "--stdout", "--quiet", "--retry-streams", "5", *extra, url, s.streamlink_quality])
+            if yd:
+                out.append([yd, "-q", "--no-part", "--hls-use-mpegts", "-f", "best", *cookies_args(cfg), "-o", "-", "--", url])
+            return out
+        cands = cands_for(s.url)
         if not cands:
             raise ValueError("Para enlaces de directo hace falta streamlink o yt-dlp (vienen en requirements.txt).")
+        if s.url2:
+            c2 = cands_for(s.url2)
+            return IngestPlan(["-i", "pipe:0", "-i", "pipe:{FD2}"], producer=cands[0], producers=cands, producers2=c2,
+                              description=f"colaboración: {s.url} + {s.url2}")
         return IngestPlan(["-i", "pipe:0"], producer=cands[0], producers=cands,
                           description=f"directo {plat}: {s.url} ({' → '.join(Path(c[0]).name for c in cands)})")
 

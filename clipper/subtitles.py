@@ -33,7 +33,9 @@ class Word:
     spk: tuple | None = None   # (género m|f, n.º de voz) si se distinguieron voces
 
 
-VOICE_COLORS = {("m", 0): "#4DA3FF", ("m", 1): "#00E5FF", ("f", 0): "#FF5FC8", ("f", 1): "#FFB347"}
+# azules/verdes azulados = voces masculinas; rosas/rojos/morados = femeninas
+VOICE_COLORS = {("m", 0): "#4DA3FF", ("m", 1): "#00E5FF", ("m", 2): "#6C7BFF",
+                ("f", 0): "#FF5FC8", ("f", 1): "#FF7A7A", ("f", 2): "#C77DFF"}
 
 
 def _color(hex_rgb: str) -> str:
@@ -60,7 +62,8 @@ def _pages(words: list[Word], cfg: SubtitlesCfg) -> list[list[Word]]:
     for i, w in enumerate(words):
         cur.append(w)
         gap = words[i + 1].start - w.end if i + 1 < len(words) else 0
-        if len(cur) >= cap or gap > 0.7 or w.text.rstrip().endswith((".", "?", "!", "…")):
+        change = i + 1 < len(words) and words[i + 1].spk != w.spk          # otra voz = otra línea (no se mezclan)
+        if len(cur) >= cap or gap > 0.7 or change or w.text.rstrip().endswith((".", "?", "!", "…")):
             pages.append(cur)
             cur = []
     if cur:
@@ -96,18 +99,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     hi, base = _color(cfg.highlight_color), _color(cfg.primary_color)
     events = []
     words = [w for w in words if w.text.strip()]
-    for page in _pages(words, cfg):
+    pages = _pages(words, cfg)
+    for pi, page in enumerate(pages):
+        nxt = pages[pi + 1][0].start if pi + 1 < len(pages) else None
         for i, active in enumerate(page):
             start = active.start
             end = page[i + 1].start if i + 1 < len(page) else active.end + 0.25
+            if i + 1 == len(page) and nxt is not None:
+                end = min(end, nxt)                      # la línea se va justo cuando entra la siguiente: nunca se pisan
             if end <= start:
                 end = start + 0.1
             # reparte en líneas de max_words_per_line palabras
             parts = []
             for j, w in enumerate(page):
                 tok = _clean(w.text, cfg.uppercase)
-                hc = _color(VOICE_COLORS[w.spk]) if (w.spk in VOICE_COLORS and j == i and cfg.voice_colors) else hi
-                parts.append(f"{{\\c{hc}}}{tok}{{\\c{base}}}" if j == i else tok)
+                vc = _color(VOICE_COLORS[w.spk]) if (w.spk in VOICE_COLORS and cfg.voice_colors) else None
+                if vc:                                   # con voces distintas: la línea entera lleva el color de quien habla; la palabra activa va en blanco
+                    parts.append(f"{{\\c{base}}}{tok}{{\\c{vc}}}" if j == i else f"{{\\c{vc}}}{tok}")
+                else:
+                    parts.append(f"{{\\c{hi}}}{tok}{{\\c{base}}}" if j == i else tok)
                 if (j + 1) % cfg.max_words_per_line == 0 and j + 1 < len(page):
                     parts.append("\\N")
                 elif j + 1 < len(page):
@@ -116,7 +126,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             anchor = seam_y if (cfg.position == "seam" and seam_y is not None) else (height // 2 if cfg.position == "center" else None)
             if anchor is not None:                       # centro / unión cámara-gameplay: posición absoluta (+ desplazamiento vertical)
                 text = f"{{\\an5\\pos({width // 2},{anchor - cfg.offset_y})}}" + text
-            events.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{text}")
+            events.append([start, end, f"Default,,0,0,0,,{text}"])
+    events.sort(key=lambda e: e[0])
+    for k in range(1, len(events)):                  # jamás dos líneas de diálogo a la vez: la anterior se quita justo cuando entra la nueva
+        prev, cur = events[k - 1], events[k]
+        if prev[1] > cur[0]:
+            prev[1] = max(prev[0] + 0.08, cur[0])
+            cur[0] = max(cur[0], prev[1])
+        if cur[1] <= cur[0]:
+            cur[1] = cur[0] + 0.1
+    events = [f"Dialogue: 0,{_ts(a)},{_ts(b)},{t}" for a, b, t in events]
     mark_align = {"tl": 7, "tr": 9, "bl": 1, "br": 3}.get((watermark or ("", "br"))[1], 9)
     hdr = hdr.replace("{MARKALIGN}", str(mark_align))
     end = _ts(duration or 36000)

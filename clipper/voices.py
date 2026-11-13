@@ -52,13 +52,17 @@ def assign(f0s: list[float | None]) -> list[tuple[str, int]] | None:
         idx = [i for i, x in enumerate(g) if x == gen]
         vals = sorted(f0s[i] for i in idx)
         sub = {i: 0 for i in idx}
-        if len(vals) >= 6:
-            gaps = [(vals[k + 1] / vals[k], k) for k in range(2, len(vals) - 2)]
-            if gaps:
-                ratio, k = max(gaps)
-                if ratio >= 1.35:
-                    cut = (vals[k] + vals[k + 1]) / 2
-                    sub = {i: int(f0s[i] > cut) for i in idx}
+        cuts: list[float] = []
+        if len(vals) >= 6:                                      # hasta 3 voces por género: se corta en los saltos de tono claros
+            gaps = sorted(((vals[k + 1] / vals[k], k) for k in range(2, len(vals) - 2)), reverse=True)
+            for ratio, k in gaps:
+                if ratio < 1.3 or len(cuts) >= 2:
+                    break
+                c = (vals[k] + vals[k + 1]) / 2
+                if all(abs(c - x) > 8 for x in cuts) and sum(v <= c for v in vals) >= 3 and sum(v > c for v in vals) >= 3:
+                    cuts.append(c)
+            cuts.sort()
+            sub = {i: sum(f0s[i] > c for c in cuts) for i in idx}
         for i in idx:
             labels[i] = (gen, sub[i])
     last = next((l for l in labels if l), None)                  # palabras sin tono: heredan la anterior

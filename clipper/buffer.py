@@ -150,11 +150,20 @@ class RollingBuffer:
         return {**self.reader.status(), "error": self.last_error}
 
     # ---- ffmpeg
-    def _ffmpeg_cmd(self, plan) -> list[str]:
+    def _ffmpeg_cmd(self, plan, fd2: int | None = None) -> list[str]:
         b = self.cfg.buffer
-        cmd = [require("ffmpeg"), "-hide_banner", "-loglevel", "warning", "-nostdin", "-nostats",
-               *plan.ffmpeg_input, "-map", "0:v:0", "-map", "0:a:0?"]
-        if b.reencode:
+        inp = [a.replace("{FD2}", str(fd2)) for a in plan.ffmpeg_input]
+        cmd = [require("ffmpeg"), "-hide_banner", "-loglevel", "warning", "-nostdin", "-nostats", *inp]
+        if plan.producers2:        # colaboración: dos directos apilados en un lienzo 9:16 (cada uno recortado al centro), audio mezclado
+            w, h = self.cfg.reframe.width, self.cfg.reframe.height
+            half = h // 2
+            half -= half % 2
+            fc = "".join(f"[{i}:v]crop='min(iw,ih*{w}/{half})':'min(ih,iw*{half}/{w})',scale={w}:{half},setsar=1[v{i}];" for i in (0, 1))
+            fc += "[v0][v1]vstack=inputs=2[v];[0:a][1:a]amix=inputs=2:duration=longest:normalize=0[a]"
+            cmd += ["-filter_complex", fc, "-map", "[v]", "-map", "[a]", "-r", "30"]
+        else:
+            cmd += ["-map", "0:v:0", "-map", "0:a:0?"]
+        if b.reencode or plan.producers2:
             cmd += ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p",
                     "-force_key_frames", f"expr:gte(t,n_forced*{b.segment_seconds})",
                     "-c:a", "aac", "-b:a", "128k"]
@@ -187,15 +196,23 @@ class RollingBuffer:
             self._wipe()  # tras una reconexión los timestamps se reinician: empezamos limpio
             cmd = self._ffmpeg_cmd(plan)
             log.debug("ffmpeg: %s", " ".join(cmd))
-            prod = None
+            prod = prod2 = None
             try:
                 if plan.producer:
                     prod = subprocess.Popen(plan.producer, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                     self._procs.append(prod)
-                ff = subprocess.Popen(cmd, stdin=prod.stdout if prod else None,
-                                      stderr=subprocess.PIPE, text=True)
+                fd2 = None
+                if plan.producers2:
+                    prod2 = subprocess.Popen(plan.producers2[(attempt - 1) % len(plan.producers2)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    self._procs.append(prod2)
+                    fd2 = prod2.stdout.fileno()
+                    cmd = self._ffmpeg_cmd(plan, fd2)
+                ff = subprocess.Popen(cmd, stdin=prod.stdout if prod else None, stderr=subprocess.PIPE, text=True,
+                                      pass_fds=(fd2,) if fd2 is not None else ())
                 if prod:
                     prod.stdout.close()
+                if prod2:
+                    prod2.stdout.close()
                 self._procs.append(ff)
                 _, err = ff.communicate()
                 if ff.returncode not in (0, None) and not self._stop.is_set():
@@ -206,7 +223,7 @@ class RollingBuffer:
                 self.last_error = str(e)
                 log.exception("fallo en ingesta")
             finally:
-                for p in (prod,):
+                for p in (prod, prod2):
                     if p and p.poll() is None:
                         p.terminate()
             if not plan.restart or self._stop.is_set():

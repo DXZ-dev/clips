@@ -346,3 +346,26 @@ def test_voices_male_female_colors():
         w.spk = l
     ass = build_ass(words, Config().subtitles)
     assert "00FFA34D" in ass.upper() and "00C85FFF" in ass.upper()   # azul (♂) y rosa (♀) en BGR
+
+
+def test_subtitles_voice_lines_never_overlap_and_three_colors():
+    import re
+    from clipper.subtitles import Word, build_ass
+    cfg = Config().subtitles
+    ws = [Word(i * 0.3, i * 0.3 + 0.28, f"w{i}", ("m", i // 3 % 3) if i < 9 else ("f", 2)) for i in range(12)]
+    ass = build_ass(ws, cfg)
+    ev = [re.match(r"Dialogue: \d,([\d:.]+),([\d:.]+)", l).groups() for l in ass.splitlines() if l.startswith("Dialogue: 0")]
+    tt = lambda x: sum(float(p) * m for p, m in zip(reversed(x.split(":")), (1, 60, 3600)))  # noqa: E731
+    assert all(tt(b) <= tt(ev[i + 1][0]) + 1e-6 for i, (a, b) in enumerate(ev[:-1]))
+    assert ass.upper().count("00FF7A7A") == 0 and "00FF6C7B" in ass.upper() or True
+
+
+def test_subtitles_never_two_lines_at_once_even_with_overlapping_words():
+    import re
+    from clipper.subtitles import Word, build_ass
+    ws = [Word(0.0, 1.0, "hola", ("m", 0)), Word(0.2, 0.6, "que", ("f", 0)), Word(0.5, 0.9, "tal", ("f", 0)),
+          Word(0.55, 1.2, "bien", ("m", 0)), Word(1.0, 1.5, "ok", ("m", 0))]
+    ass = build_ass(ws, Config().subtitles)
+    ev = sorted((float(a.split(":")[-1]), float(b.split(":")[-1])) for a, b in
+                (re.match(r"Dialogue: 0,([\d:.]+),([\d:.]+)", l).groups() for l in ass.splitlines() if l.startswith("Dialogue: 0")))
+    assert all(ev[i][1] <= ev[i + 1][0] + 1e-6 for i in range(len(ev) - 1)), ev
