@@ -169,7 +169,7 @@ install_system_deps() {
       if [ "${#miss[@]}" -gt 0 ]; then
         ask "Instalar con apt: ${miss[*]}" || die "Sin esas dependencias no se puede continuar."
         as_root apt-get update
-        as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y "${miss[@]}"
+        as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o DPkg::Lock::Timeout=180 install -y "${miss[@]}"
       fi ;;
     dnf)
       warn "Fedora/RHEL: soporte sin probar. ffmpeg completo (con libx264) requiere RPM Fusion."
@@ -400,11 +400,112 @@ download_models() {
   fi
 }
 
+current_port() {
+  if [ -n "$PORT" ]; then echo "$PORT"; return; fi
+  "$VPY" -c 'from clipper.config import load_config; print(load_config().server.port)' 2>/dev/null || echo 7848
+}
+
+# ¿Es un proceso de clipper (de esta o de otra instalación anterior)?
+is_clipper_proc() {
+  case "$1" in *"$APP_DIR"*|*"-m clipper"*|*"/clipper serve"*|*"clipper/.venv"*) return 0 ;; esac
+  return 1
+}
+
+# PIDs que escuchan en el puerto $1. Lee /proc con Python (no depende de ss/lsof/fuser, que pueden no estar instalados).
+port_pids() {
+  "${VPY:-python3}" - "$1" <<'PY' 2>/dev/null || true
+import os, sys
+port = int(sys.argv[1])
+inodes = set()
+for f in ("/proc/net/tcp", "/proc/net/tcp6"):
+    try:
+        rows = open(f).read().splitlines()[1:]
+    except OSError:
+        continue
+    for r in rows:
+        c = r.split()
+        if len(c) > 9 and c[3] == "0A" and int(c[1].rsplit(":", 1)[1], 16) == port:
+            inodes.add(c[9])
+found = set()
+for pid in os.listdir("/proc"):
+    if not pid.isdigit():
+        continue
+    try:
+        for fd in os.listdir(f"/proc/{pid}/fd"):
+            try:
+                t = os.readlink(f"/proc/{pid}/fd/{fd}")
+            except OSError:
+                continue
+            if t.startswith("socket:[") and t[8:-1] in inodes:
+                found.add(int(pid))
+    except OSError:
+        continue
+print("\n".join(str(p) for p in sorted(found)))
+PY
+}
+proc_cmd() { tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null || true; }
+
+stop_pid() {   # SIGTERM, y SIGKILL si en 5 s no ha salido
+  local pid="$1" n=0
+  kill "$pid" 2>/dev/null || return 0
+  while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 10 ]; do sleep 0.5; n=$((n + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null || true; fi
+}
+
+confirm_tty() {   # sí/no explícito (por defecto NO); nunca se asume con --yes
+  [ "$YES" = 1 ] && return 1
+  [ -r /dev/tty ] && [ -w /dev/tty ] || return 1
+  local a; printf '%s [s/N] ' "$1" >/dev/tty; read -r a </dev/tty || a=""
+  case "${a:-n}" in [sSyY]*) return 0 ;; *) return 1 ;; esac
+}
+
+# Deja libre el puerto del panel antes de arrancar el servicio:
+#  - Servicios y procesos de clipper anteriores (aunque sean de otra carpeta): se paran solos.
+#  - Un programa AJENO que ocupe el puerto no se mata a ciegas: se pregunta (por defecto no) y, si no, se usa otro puerto libre.
+free_port() {
+  [ "$DRY" = 1 ] && return 0
+  local port pid cmd old rest p
+  port="$(current_port)"
+  if need_cmd systemctl; then
+    if [ -f /etc/systemd/system/clipper.service ]; then
+      systemctl stop clipper.service >>"$LOG" 2>&1 || true     # parado, para que no reaparezca mientras se instala
+    fi
+    old="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/clipper.service"
+    if [ -f "$old" ]; then
+      systemctl --user disable --now clipper.service >>"$LOG" 2>&1 || true
+      rm -f "$old"; systemctl --user daemon-reload >>"$LOG" 2>&1 || true
+      warn "Se retiró un servicio de usuario antiguo de clipper (solo escuchaba en localhost)."
+    fi
+  fi
+  for pid in $(port_pids "$port"); do
+    cmd="$(proc_cmd "$pid")"
+    if is_clipper_proc "$cmd"; then
+      stop_pid "$pid"; warn "Se detuvo una instancia anterior de clipper (PID $pid) que ocupaba el puerto $port."
+    fi
+  done
+  rest="$(port_pids "$port")"
+  [ -n "$rest" ] || return 0
+  pid="$(echo "$rest" | head -n 1)"; cmd="$(proc_cmd "$pid")"
+  if confirm_tty "El puerto $port lo ocupa otro programa (PID $pid: ${cmd:-desconocido}). ¿Detenerlo?"; then
+    stop_pid "$pid"; ok "Programa detenido (PID $pid)"
+    return 0
+  fi
+  for p in $(seq $((port + 1)) $((port + 30))); do
+    if [ -z "$(port_pids "$p")" ]; then
+      warn "El puerto $port está ocupado por otro programa (PID $pid: ${cmd:-desconocido}): se usará el $p."
+      PORT="$p"; put_setting server port "$p"
+      return 0
+    fi
+  done
+  die "No se encontró ningún puerto libre entre $port y $((port + 30))."
+}
+
 install_service() {
   [ "$SERVICE" = 1 ] || return 0
   step "Servicio systemd"
   need_cmd systemctl || { warn "systemd no disponible: servicio omitido."; return 0; }
   [ "$DRY" = 1 ] && { echo "  [dry-run] instalar clipper.service"; return 0; }
+  free_port
   if [ "$(id -u)" -eq 0 ]; then
     cat >/etc/systemd/system/clipper.service <<EOF
 [Unit]
@@ -422,7 +523,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-    if systemctl daemon-reload >>"$LOG" 2>&1 && systemctl enable --now clipper.service >>"$LOG" 2>&1; then
+    if systemctl daemon-reload >>"$LOG" 2>&1 && systemctl enable clipper.service >>"$LOG" 2>&1 && systemctl restart clipper.service >>"$LOG" 2>&1; then
       SERVICE_OK=1; ok "Servicio del sistema activo y con arranque automático: systemctl status clipper"
     else
       warn "No se pudo activar el servicio (ver $LOG). Archivo en /etc/systemd/system/clipper.service"
@@ -446,7 +547,7 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 EOF
-  if systemctl --user daemon-reload >>"$LOG" 2>&1 && systemctl --user enable --now clipper.service >>"$LOG" 2>&1; then
+  if systemctl --user daemon-reload >>"$LOG" 2>&1 && systemctl --user enable clipper.service >>"$LOG" 2>&1 && systemctl --user restart clipper.service >>"$LOG" 2>&1; then
     SERVICE_OK=1; ok "Servicio activo: systemctl --user status clipper"
     warn "Para que arranque con el equipo sin abrir sesión: sudo loginctl enable-linger $USER"
   else
@@ -468,6 +569,7 @@ wait_ready() {
   done
   warn "El servicio está activo pero el panel NO responde en el puerto $port tras 2 minutos."
   warn "Mira los motivos con:  journalctl -u clipper -n 60 --no-pager"
+  ss -ltnp 2>/dev/null | grep -E "[:.]${port}[[:space:]]" >&2 || true
   systemctl status clipper --no-pager -l 2>&1 | tail -n 15 >&2 || true
   journalctl -u clipper -n 25 --no-pager 2>&1 | tail -n 25 >&2 || true
 }

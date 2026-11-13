@@ -127,3 +127,16 @@ def test_cli_refuses_lan_without_password_and_set_password(tmp_path):
     r = run("set-password", "--stdin", inp="una-contraseña-larga\n")
     assert r.returncode == 0 and "guardada" in r.stdout
     assert "server.password_hash" in (tmp_path / "secrets.local.yaml").read_text()
+
+
+def test_serve_fails_fast_when_port_is_busy(tmp_path):
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen()
+    port = s.getsockname()[1]
+    env = {"PATH": "/usr/bin:/bin", "CLIPPER_STATE_DIR": str(tmp_path), "HOME": str(tmp_path), "PYTHONPATH": str(C.ROOT)}
+    r = subprocess.run([sys.executable, "-m", "clipper", "serve", "--host", "127.0.0.1", "--port", str(port)],
+                       capture_output=True, text=True, env=env, cwd=C.ROOT, timeout=60)
+    s.close()
+    assert r.returncode == 3 and "ya está en uso" in r.stdout and f":{port}" in r.stdout

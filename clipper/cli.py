@@ -117,6 +117,18 @@ def main(argv=None) -> int:
             print(f"Por seguridad no se abre el panel a la red ({host}) sin contraseña.\n"
                   "Ponla con:  clipper set-password   (o define la variable CLIPPER_PASSWORD) y vuelve a arrancar.")
             return 2
+        import socket
+        port = a.port or cfg.server.port
+        probe = socket.socket()
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind((host, port))
+        except OSError as e:
+            print(f"El puerto {port} ya está en uso ({e.strerror}). ¿Hay otra instancia de clipper en marcha?\n"
+                  f"Mira quién lo usa con:  ss -ltnp | grep :{port}   — o elige otro puerto: clipper serve --port N")
+            return 3
+        finally:
+            probe.close()
         from .engine import Engine
         from .web.app import create_app
         uvicorn.run(create_app(Engine(cfg)), host=host, port=a.port or cfg.server.port,
