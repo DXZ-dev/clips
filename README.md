@@ -49,6 +49,20 @@ A mano (Linux, Windows o Mac): `docker compose up -d --build` (CPU) o `docker co
 aunque comparte la VRAM con el juego y OBS. Si notas tirones mientras juegas, limita WSL2 creando `%USERPROFILE%\.wslconfig` con `[wsl2]` `processors=6` `memory=12GB`
 y no analices vídeos largos mientras juegas. Alternativa si el PC de juego va justo: deja el análisis en otra máquina (tu Proxmox) y dale la URL del directo de Twitch/YouTube (`streamlink`).
 
+## Pestaña Directo: todo en un sitio
+- **Ventana en vivo:** el directo que recibe clipper, reproducido en el navegador (HLS; la librería `hls.js` va incluida, sin CDN). Retraso aproximado 10-20 s.
+- **Previa del clip (9:16):** cómo quedaría un clip ahora mismo, con el diseño y los subtítulos actuales. «Cámara + gameplay» pone **tu cámara arriba y el centro del gameplay recortado abajo** (llenando el ancho,
+  sin la cámara original de la esquina). **📷 Marcar la cámara:** toma una imagen del directo, ajusta el rectángulo (o pulsa Detectar) y guárdalo una vez: se usa en todos los clips.
+- **Subtítulos:** estilo rápido, letra, tamaño, borde, sombra, colores, posición (incluida la unión cámara/gameplay), subir/bajar y palabras por línea; la previa se actualiza sola.
+  «✔ Los subtítulos están bien» los marca como revisados (el modo automático te avisa si no lo hiciste).
+- **Modo automático de clips** (Manual · Automático a revisión · Automático total) con **pausar / reanudar** (también en la cabecera). Sensibilidad Baja/Media/Alta, duración, máximo por hora y separación mínima.
+  Los clips automáticos se deciden **por puntuación**: se espera ~6 s a que lleguen más señales del mismo momento y solo se crea el clip si supera la puntuación mínima.
+  Señales: palabras clave (3) · risas (2,5) · reacción del streamer en cámara (2,2) · pico de volumen (2) · movimiento en pantalla (1,8, más si es céntrico) · habla rápida (1,5); +15 % si hay personajes en pantalla.
+  **Sin cámara** el movimiento pesa 1,5× y el recorte «Automático» sigue a personas/personajes y a la acción con preferencia por el centro (y vuelve al centro si no hay nada claro).
+- **Redes inline:** activa YouTube/TikTok/Instagram/Webhook desde la propia tarjeta (con «Conectar»/«Configurar»); cada clip también tiene sus botones «→ red» en **Clips** para publicar a mano.
+- **Cada clip** lleva un **título automático** (lo que dice el clip; con IA si activas «generar con IA») y su **canal de origen** (p. ej. `kick · epidemic77`), con filtro por canal en **Clips**. El título pasa a la publicación.
+- **Actualizar:** Ajustes → Actualizaciones compara con GitHub, avisa si hay versión nueva y la instala con un clic (requiere el servicio de systemd: instala con `--server`).
+
 ## Dónde pongo el enlace de mi canal (Twitch, Kick, YouTube)
 Pestaña **Directo → Fuente del directo → 📺 Twitch · Kick · YouTube**: pega el enlace de tu canal (`twitch.tv/tucanal`, `kick.com/tucanal`, `youtube.com/@canal/live`) o el de un directo concreto,
 pulsa **Probar enlace** (te dice la plataforma, si está en directo y el título) y luego **Guardar y conectar**. No hace falta cuenta, token ni clave: se lee el directo público
