@@ -113,7 +113,8 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         return _contain("[0:v]", "[v0]", W, H, cfg.layout.blur_strength), None, note
 
     if note["layout"] == "split":
-        cards = (panels or cfg.layout.panels) == "cards"
+        pmode = panels or spec.panels or cfg.layout.panels
+        overlay, cards = pmode == "overlay", pmode == "cards"
         m, g_, rad = (cfg.layout.panel_margin, cfg.layout.panel_gap, cfg.layout.panel_radius) if cards else (0, 0, 0)
         PW = W - 2 * m                                   # ancho de cada pantalla
         content = H - 2 * m - g_
@@ -125,6 +126,12 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
             want = _even(PW * (z.h * info.height) / max(2.0, z.w * info.width))
             game_h = min(max(want, _even(content * 0.30)), _even(content * 0.72))
             cam_h = content - game_h
+        ob = None
+        if overlay:                                      # pantalla 1 = fondo a lienzo completo; pantalla 2 = cámara encima, en la caja que tú arrastras
+            cb = spec.cam_box or cfg.layout.cam_box or RectCfg(x=0.05, y=0.04, w=0.90, h=0.30)
+            bw_, bh_ = max(64, _even(cb.w * W)), max(64, _even(cb.h * H))
+            ob = (min(_even(cb.x * W), W - bw_), min(_even(cb.y * H), H - bh_))
+            PW, cam_h = bw_, bh_
         zoom = spec.cam_zoom if spec.cam_follow else 1.0
         if spec.cam_follow and "facepath" not in cache:
             cache["facepath"] = track_face_in(input_args, info, cfg, rect)         # seguimiento real, fotograma a fotograma
@@ -148,7 +155,13 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
             face = cache["face"]
             px, py, pw, ph = _cam_crop(info, rect, face, PW, cam_h, zoom)
             cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={PW}:{cam_h}:flags=lanczos[cam]"
-        if spec.gameplay == "center":
+        if overlay:
+            if spec.gameplay_zone is not None:
+                cw, ch, gx, gy = _zone_crop(info, spec.gameplay_zone, W, H)
+            else:
+                cw, ch, gx, gy = _center_crop(info, rect, W, H, spec.gameplay_x, None)
+            game = f"[s2]crop={cw}:{ch}:{gx}:{gy},scale={W}:{H}:flags=lanczos[game]"
+        elif spec.gameplay == "center":
             cw, ch, gx, gy = _center_crop(info, rect, PW, game_h, spec.gameplay_x, spec.gameplay_zone)
             game = f"[s2]crop={cw}:{ch}:{gx}:{gy},scale={PW}:{game_h}:flags=lanczos[game]"
         elif spec.gameplay == "cover":
@@ -163,7 +176,12 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
             game = f"[s2]crop={zc[0]}:{zc[1]}:{zc[2]}:{zc[3]}[zc];" + _contain("[zc]", "[game]", PW, game_h, cfg.layout.blur_strength)
         else:
             game = _contain("[s2]", "[game]", PW, game_h, cfg.layout.blur_strength)
-        note.update(face_in_cam=bool(face), panels="cards" if cards else "flush")
+        note.update(face_in_cam=bool(face), panels="overlay" if overlay else "cards" if cards else "flush")
+        if overlay:
+            mk = f"color=c=white:s={PW}x{cam_h}:r=25:d=0.04,format=gray,geq=lum='{_round_expr(cfg.layout.panel_radius)}',loop=loop=-1:size=1[mk]"
+            graph = (f"[0:v]split=2[s1][s2];{cam};{game};{mk};[cam]format=yuva420p[camf];[camf][mk]alphamerge[camr];"
+                     f"[game][camr]overlay={ob[0]}:{ob[1]}[v0]")
+            return graph, None, note
         if cards:                                          # dos pantallas independientes sobre un fondo desenfocado del propio directo
             top_h, bot_h = (cam_h, game_h) if spec.facecam_position == "top" else (game_h, cam_h)
             first, second = ("cam", "game") if spec.facecam_position == "top" else ("game", "cam")

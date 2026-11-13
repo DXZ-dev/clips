@@ -298,3 +298,17 @@ def test_exact_zone_sets_panel_height(cfg, source):
     info = probe(source)
     graph, _, note = build_graph(cfg, spec, info, ["-i", str(source)], False, {}, None)
     assert "crop=" in graph and note["panels"] == "cards"
+
+
+def test_overlay_render(cfg, source):
+    from clipper.config import RectCfg
+    cfg.layout.facecam = RectCfg(x=0.02, y=0.02, w=0.3, h=0.3)
+    cfg.layout.gameplay_zone = RectCfg(x=0.2, y=0.0, w=0.6, h=1.0)
+    cfg.layout.panels = "overlay"
+    cfg.layout.cam_box = RectCfg(x=0.1, y=0.05, w=0.8, h=0.25)
+    cfg.layout.mode = "split"
+    cfg.reframe.detector = "none"
+    cfg.layout.cam_follow = False
+    name = make_clip(cfg, source, "clip_o")
+    i = probe(ed.out_dir(cfg) / name)
+    assert (i.width, i.height) == (1080, 1920)

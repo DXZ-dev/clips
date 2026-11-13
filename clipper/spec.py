@@ -44,6 +44,8 @@ class EditSpec(BaseModel):
     gameplay: Literal["center", "cover", "contain"] = "center"
     gameplay_x: float | None = Field(None, ge=0, le=1)
     gameplay_zone: RectCfg | None = None
+    panels: Literal["cards", "flush", "overlay"] | None = None
+    cam_box: RectCfg | None = None
     cam_follow: bool = True
     cam_zoom: float = Field(1.15, ge=1.0, le=2.5)
     subtitles: SubStyle = SubStyle()
@@ -64,4 +66,4 @@ def default_spec(cfg: Config, words: list[EditWord], trim_start: float, trim_end
     lc = cfg.layout
     return EditSpec(trim_start=trim_start, trim_end=trim_end, layout=lc.mode, facecam=lc.facecam,
                     facecam_position=lc.facecam_position, facecam_height_pct=lc.facecam_height_pct,
-                    gameplay=lc.gameplay, gameplay_x=lc.gameplay_x, gameplay_zone=lc.gameplay_zone, cam_follow=lc.cam_follow, cam_zoom=lc.cam_zoom, subtitles=SubStyle(enabled=cfg.subtitles.enabled), words=words)
+                    gameplay=lc.gameplay, gameplay_x=lc.gameplay_x, gameplay_zone=lc.gameplay_zone, panels=lc.panels, cam_box=lc.cam_box, cam_follow=lc.cam_follow, cam_zoom=lc.cam_zoom, subtitles=SubStyle(enabled=cfg.subtitles.enabled), words=words)
