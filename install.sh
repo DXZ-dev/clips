@@ -20,7 +20,7 @@ WHISPER="small"
 PORT=""
 PYTHON_OVERRIDE=""
 GPU="auto"            # auto | yes | no  (libs CUDA para Whisper en GPU NVIDIA)
-YES=0; DRY=0; NO_MODELS=0; NO_WHISPER=0; SERVICE=0; UNINSTALL=0; PURGE=0; NO_VERIFY=0; LAN=0
+YES=0; DRY=0; NO_MODELS=0; NO_WHISPER=0; SERVICE=0; UNINSTALL=0; PURGE=0; NO_VERIFY=0; LAN=0; SERVICE_OK=0
 
 usage() {
   cat <<'EOF'
@@ -423,7 +423,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
     if systemctl daemon-reload >>"$LOG" 2>&1 && systemctl enable --now clipper.service >>"$LOG" 2>&1; then
-      ok "Servicio del sistema activo y con arranque automático: systemctl status clipper"
+      SERVICE_OK=1; ok "Servicio del sistema activo y con arranque automático: systemctl status clipper"
     else
       warn "No se pudo activar el servicio (ver $LOG). Archivo en /etc/systemd/system/clipper.service"
     fi
@@ -447,7 +447,7 @@ RestartSec=5
 WantedBy=default.target
 EOF
   if systemctl --user daemon-reload >>"$LOG" 2>&1 && systemctl --user enable --now clipper.service >>"$LOG" 2>&1; then
-    ok "Servicio activo: systemctl --user status clipper"
+    SERVICE_OK=1; ok "Servicio activo: systemctl --user status clipper"
     warn "Para que arranque con el equipo sin abrir sesión: sudo loginctl enable-linger $USER"
   else
     warn "No se pudo activar el servicio (¿sin sesión systemd de usuario?). Archivo creado en $dir/clipper.service"
@@ -504,7 +504,7 @@ summary() {
     ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
     url="http://${ip:-IP_DEL_SERVIDOR}:$port"
   fi
-  local start="clipper serve"; [ "$SERVICE" = 1 ] && start="ya está en marcha (systemctl status clipper)"
+  local start="clipper serve"; [ "$SERVICE_OK" = 1 ] && start="ya está en marcha (systemctl status clipper)"
   cat <<EOF
 
 ${G}${B}✔ clipper instalado${N}   (registro: $LOG)
