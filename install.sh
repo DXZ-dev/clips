@@ -97,7 +97,10 @@ run() {
   wait "$pid" || rc=$?
   [ "$dots" -ge 10 ] && printf '\n'
   if [ "$rc" -ne 0 ]; then
-    echo "--- últimas líneas del registro ($LOG) ---" >&2; tail -n 25 "$LOG" >&2; return 1
+    if [ "${RUN_QUIET:-0}" != 1 ]; then
+      echo "--- últimas líneas del registro ($LOG) ---" >&2; tail -n 25 "$LOG" >&2
+    fi
+    return 1
   fi
   return 0
 }
@@ -274,7 +277,7 @@ install_python_deps() {
   run "${VPIP[@]}" install --upgrade pip wheel
   # torch solo se usa para silero-vad: la versión CPU basta (~200 MB en vez de ~5 GB con CUDA).
   if [ "$DRY" = 1 ] || ! "$VPY" -c 'import torch' >/dev/null 2>&1; then
-    if ! run "${VPIP[@]}" install torch --index-url https://download.pytorch.org/whl/cpu; then
+    if ! RUN_QUIET=1 run "${VPIP[@]}" install torch --index-url https://download.pytorch.org/whl/cpu; then
       warn "No se pudo usar el índice CPU de PyTorch; se usa el de PyPI (más grande)."
       run "${VPIP[@]}" install torch
     fi
