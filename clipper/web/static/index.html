@@ -48,11 +48,23 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
 .job{padding:10px 0;border-bottom:1px solid var(--line)}.job:last-child{border:0}
 #vjobs a{color:var(--ac);cursor:pointer}
 #vfile{display:none!important}
+.pvbox video{display:block;margin:0 auto;aspect-ratio:9/16;max-height:62vh;width:auto;max-width:100%;background:#000;border-radius:14px}
+code{background:#10131a;padding:1px 6px;border-radius:5px}
 </style></head>
 <body><header class="top"><div class="brand">✂️ <b>clipper</b> <span class="mut" id="src"></span></div>
  <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes</a></nav><a id="logout" style="display:none;margin-left:auto;color:var(--mut);cursor:pointer">Salir</a></header>
 <main>
 <div class="view on" id="v_live">
+<section class="card" id="srccard" style="margin-bottom:12px"><h2>Fuente del directo <span id="src_plat" class="chip2"></span> <span id="src_state" class="mut" style="text-transform:none;letter-spacing:0"></span></h2>
+ <div class="seg2" id="stype"><button data-t="live">📺 Twitch · Kick · YouTube</button><button data-t="rtmp">🎥 OBS (RTMP)</button><button data-t="file">🎞 Archivo de prueba</button></div>
+ <div id="src_live" style="margin-top:12px"><label>Enlace del canal o del directo <input id="src_url" placeholder="https://www.twitch.tv/tucanal · https://kick.com/tucanal · https://www.youtube.com/@canal/live"></label>
+  <div class="mut" style="font-size:12px">Vale el enlace de tu canal o el de un directo concreto. No hace falta cuenta ni token: se lee el directo público. Si el canal no está en directo, se conecta solo cuando empiece.</div>
+  <div class="row" style="margin-top:8px"><button id="src_probe">Probar enlace</button></div></div>
+ <div id="src_rtmp" style="display:none;margin-top:12px"><div class="mut" style="font-size:13px;line-height:1.7">En OBS: Ajustes → Emisión → Servicio <b>Personalizado</b><br>Servidor: <code>rtmp://<span id="src_host"></span>:1935/live</code><br>Clave de retransmisión: <code>obs</code></div>
+  <div class="warn">OBS solo emite a un destino a la vez. Para seguir emitiendo a Twitch a la vez usa el plugin «Multiple RTMP outputs», o conecta por enlace de tu canal.</div></div>
+ <div id="src_file" style="display:none;margin-top:12px"><label>Ruta del vídeo de prueba (en el servidor) <input id="src_file_in" placeholder="./samples/test.mp4"></label></div>
+ <div class="row" style="margin-top:12px"><button id="src_save" class="sel">Guardar y conectar</button><span id="src_msg" class="mut"></span></div>
+</section>
 <div class="grid">
  <section class="card"><h2>Buffer</h2>
   <div><span class="dot" id="live"></span><span id="livetxt">—</span></div>
@@ -72,9 +84,17 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
   <h2 style="margin-top:14px">Última transcripción</h2><div id="tr">—</div>
  </section>
 </div>
-<section class="card" style="margin-top:12px"><h2>Clips automáticos del directo</h2>
+<div class="grid" style="margin-top:12px">
+ <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
+  <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
+  <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto">Automático</button><button data-l="split">Cámara + gameplay</button><button data-l="fit">Completo</button></div>
+  <div class="row" style="margin-top:10px"><button id="pv_now">Actualizar previa</button><label class="chk" style="margin:0"><input type="checkbox" id="pv_live"> Previa en vivo (cada ~12 s)</label></div>
+  <div class="mut" id="pv_msg" style="margin-top:6px;font-size:13px"></div>
+  <div class="mut" style="font-size:12px;margin-top:4px">Muestra cómo quedaría un clip de los últimos 8 s con el diseño y los subtítulos actuales. Se genera en baja resolución; consume algo de CPU mientras está activada.</div></section>
+ <section class="card"><h2>Clips automáticos del directo</h2>
  <label class="chk"><input type="checkbox" id="auto_on"> Sacar clips solos de los momentos destacados</label>
  <div class="mut" style="font-size:13px;margin-top:4px">Con el directo en marcha detectamos palabras clave, risas, picos de volumen y habla acelerada, y guardamos el clip sin que hagas nada. Para un vídeo ya grabado usa la pestaña <b>Vídeos</b>.</div></section>
+</div>
 <section class="card"><h2>Eventos</h2><div id="events"></div></section>
 </div>
 <div class="view" id="v_videos">
@@ -113,7 +133,7 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
  <p class="mut" style="font-size:12px">Todo funciona en local. Solo hay tráfico de red si eliges aquí una fuente en vivo remota o el proveedor de transcripción «API».</p>
  <div class="form">
   <fieldset><legend>Fuente</legend>
-   <label>Tipo <select id="s_type"><option>file</option><option>rtmp</option><option>hls</option><option>streamlink</option><option>ytdlp</option></select></label>
+   <label>Tipo <select id="s_type"><option>file</option><option>live</option><option>rtmp</option><option>hls</option><option>streamlink</option><option>ytdlp</option></select></label>
    <label>URL <input id="s_url" placeholder="rtmp://0.0.0.0:1935/live/obs · https://twitch.tv/canal"></label>
    <label>Archivo (modo prueba) <input id="s_file"></label>
    <label class="chk"><input type="checkbox" id="s_listen"> RTMP: escuchar (OBS se conecta a esta máquina)</label>
@@ -131,6 +151,11 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
     <div class="row"><button id="a_test">Guardar y probar API</button><span id="a_msg" class="mut"></span></div>
     <div class="warn">⚠️ Con «API» el audio del directo se envía a esa URL. Usa un servidor tuyo si quieres que no salga de tu red. La clave se guarda solo en este equipo (secrets.local.yaml) y no se vuelve a mostrar.</div>
    </div>
+  </fieldset>
+  <fieldset><legend>Vídeos (enlaces y análisis)</legend>
+   <label>Clips como máximo por vídeo <input id="vd_max" type="number" min="1" max="50"></label>
+   <label>Cookies para yt-dlp (archivo cookies.txt, ruta en el servidor) <input id="vd_cookies" placeholder="vacío = sin cookies"></label>
+   <div class="mut" style="font-size:12px">Si YouTube pide «confirmar que no eres un robot» (pasa desde IPs de servidor), exporta las cookies de tu navegador (extensión «Get cookies.txt») y pon aquí la ruta del archivo.</div>
   </fieldset>
   <fieldset><legend>Seguridad</legend>
    <div id="sec_state" style="margin-bottom:6px"></div>
@@ -207,6 +232,7 @@ async function status(){
  if(!buildDur){buildDur=true;$("durs").innerHTML=s.durations.map(d=>`<button data-s="${d}">${d} s</button>`).join("");
   document.querySelectorAll("#durs button").forEach(b=>b.onclick=()=>pickDur(+b.dataset.s));pickDur(s.default_seconds)}
  const b=s.buffer;$("live").className="dot"+(b.live?" on":"");$("livetxt").textContent=b.live?"En directo":(b.error?"Error: "+b.error:"Esperando señal…");
+ $("src_state").textContent=b.live?"· ✔ recibiendo señal":(b.error?"· "+b.error:"· esperando señal…");
  $("fill").style.width=Math.min(100,b.buffered_seconds/b.window_seconds*100)+"%";
  $("buf").textContent=`${b.buffered_seconds} s / ${b.window_seconds} s`;$("q").textContent=s.queue;
  const t=s.transcriber;$("wh").innerHTML=!t.enabled?"desactivado":t.error?`<span class="err">error</span>`:!t.ready?"cargando modelo…":`${esc(t.model)} (retraso ${t.lag_seconds??"—"} s)`;
@@ -243,7 +269,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- fillPub(c);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);V("vd_max",c.vod.max_clips);V("vd_cookies",c.vod.cookies_file);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -254,7 +280,7 @@ $("save").onclick=async()=>{
   triggers:{cooldown_seconds:+$("g_cool").value,auto_clip_seconds:+$("g_auto").value,post_roll_seconds:+$("g_post").value,
    energy:{enabled:$("e_on").checked,spike_db:+$("e_db").value},cadence:{enabled:$("c_on").checked},
    keywords:{enabled:$("k_on").checked,laughter:$("k_laugh").checked,phrases:$("k_phr").value.split("\n").map(x=>x.trim()).filter(Boolean)}},
-  publish:pubPatch(),ai:aiPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
+  publish:pubPatch(),vod:{max_clips:+$("vd_max").value||8,cookies_file:$("vd_cookies").value.trim()},ai:aiPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
  try{const r=await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
   $("smsg").textContent=r.changed.length?"Aplicado: "+r.changed.join(", "):"Sin cambios";$("a_clear").checked=false;loadSettings()}
  catch(e){$("smsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};
@@ -319,7 +345,7 @@ window.refreshClips=()=>{lastClips="";clips()};
 /* ---- navegación y vídeos ---- */
 function show(v){document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v_"+v));document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
  if(location.hash!=="#"+v)history.replaceState(null,"","#"+v);window.scrollTo(0,0);
- if(v==="set")loadSettings();if(v==="videos"){vjobs();vplats()}if(v==="clips")refreshClips();}
+ if(v==="set")loadSettings();if(v==="live")loadSource();if(v==="videos"){vjobs();vplats()}if(v==="clips")refreshClips();}
 document.querySelectorAll("#nav a").forEach(a=>a.onclick=()=>show(a.dataset.v));
 const VMODE={m:"highlights"};
 document.querySelectorAll("#vmode button").forEach(b=>b.onclick=()=>{VMODE.m=b.dataset.m;document.querySelectorAll("#vmode button").forEach(x=>x.classList.toggle("sel",x===b));
@@ -362,6 +388,39 @@ async function vjobs(){let j;try{j=await api("/api/videos")}catch{return}
  document.querySelectorAll("[data-goclips]").forEach(a=>a.onclick=()=>show("clips"));document.querySelectorAll("[data-gopub]").forEach(a=>a.onclick=()=>show("pub"))}
 setInterval(vjobs,2500);
 $("auto_on").onchange=async()=>{try{await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({triggers:{auto_enabled:$("auto_on").checked}})})}catch(e){alert(e.message)}};
+
+/* ---- fuente del directo y previa ---- */
+const SRC={type:"live"},PNAME={twitch:"Twitch",kick:"Kick",youtube:"YouTube"};
+function platOf(u){try{const h=new URL(u).hostname.toLowerCase();for(const [k,d] of [["twitch",["twitch.tv"]],["kick",["kick.com"]],["youtube",["youtube.com","youtu.be"]]])if(d.some(x=>h===x||h.endsWith("."+x)))return k}catch{}return""}
+function srcType(t){SRC.type=t;document.querySelectorAll("#stype button").forEach(b=>b.classList.toggle("sel",b.dataset.t===t));
+ $("src_live").style.display=t==="live"?"block":"none";$("src_rtmp").style.display=t==="rtmp"?"block":"none";$("src_file").style.display=t==="file"?"block":"none";$("src_host").textContent=location.hostname}
+document.querySelectorAll("#stype button").forEach(b=>b.onclick=()=>srcType(b.dataset.t));
+$("src_url").oninput=()=>{const p=platOf($("src_url").value);$("src_plat").textContent=p?PNAME[p]:"";$("src_plat").className="chip2"+(p?" ok":"")};
+async function loadSource(){let c;try{c=await api("/api/settings")}catch{return}
+ const t=c.source.type;srcType(["live","streamlink","ytdlp"].includes(t)?"live":t==="rtmp"?"rtmp":"file");
+ if(["live","streamlink","ytdlp"].includes(t))$("src_url").value=c.source.url;$("src_url").oninput();$("src_file_in").value=c.source.file;
+ document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode))}
+const PUT=b=>({method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+$("src_probe").onclick=async()=>{const m=$("src_msg"),u=$("src_url").value.trim();m.className="mut";if(!u){m.className="err";m.textContent="Pega un enlace.";return}m.textContent="Comprobando (puede tardar unos segundos)…";
+ try{const r=await api("/api/source/probe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});
+  if(r.ok&&r.live)m.innerHTML='<span style="color:var(--ok)">✔ En directo ahora'+(r.title?" — "+esc(r.title):"")+"</span>";
+  else if(r.ok)m.innerHTML="ℹ Es un vídeo, no un directo"+(r.title?" («"+esc(r.title)+"»)":"")+". Úsalo en la pestaña <b>Vídeos</b>.";
+  else if(r.live===false)m.innerHTML='<span style="color:#ffb86b">⚠ '+esc(r.message)+" Puedes guardarlo igualmente: se conectará solo cuando empiece.</span>";
+  else m.innerHTML='<span class="err">'+esc(r.message)+"</span>"}catch(e){m.className="err";m.textContent=e.message}};
+$("src_save").onclick=async()=>{const m=$("src_msg");m.className="mut";let src;
+ if(SRC.type==="live"){const u=$("src_url").value.trim();if(!u){m.className="err";m.textContent="Pega el enlace de tu canal.";return}src={type:"live",url:u}}
+ else if(SRC.type==="rtmp")src={type:"rtmp",url:"rtmp://0.0.0.0:1935/live/obs",rtmp_listen:true};
+ else src={type:"file",file:$("src_file_in").value.trim()};
+ m.textContent="Guardando…";try{await api("/api/settings",PUT({source:src}));m.innerHTML='<span style="color:var(--ok)">✔ Guardado: conectando…</span>';setTimeout(status,1500);setTimeout(status,5000)}catch(e){m.className="err";m.textContent=e.message}};
+let pvBusy=false,pvTimer=null,pvAt=0;
+async function pvRefresh(manual){if(pvBusy)return;pvBusy=true;const m=$("pv_msg");if(manual)m.textContent="Generando previa…";
+ try{const r=await api("/api/live/preview?seconds=8",{method:"POST"});const v=$("pv_vid");v.src=r.url;v.play().catch(()=>{});pvAt=Date.now();m.textContent=""}
+ catch(e){m.textContent=e.message}finally{pvBusy=false}}
+$("pv_now").onclick=()=>pvRefresh(true);
+$("pv_live").onchange=()=>{clearInterval(pvTimer);if($("pv_live").checked){pvRefresh(true);pvTimer=setInterval(()=>{if($("v_live").classList.contains("on"))pvRefresh(false)},12000)}};
+setInterval(()=>{if(pvAt)$("pv_age").textContent="· hace "+Math.round((Date.now()-pvAt)/1000)+" s"},1000);
+document.querySelectorAll("#pv_layout button").forEach(b=>b.onclick=async()=>{try{await api("/api/settings",PUT({layout:{mode:b.dataset.l}}));document.querySelectorAll("#pv_layout button").forEach(x=>x.classList.toggle("sel",x===b));pvRefresh(true)}catch(e){$("pv_msg").textContent=e.message}});
+loadSource();
 show((location.hash||"#live").slice(1)in{live:1,videos:1,clips:1,pub:1,set:1}?(location.hash||"#live").slice(1):"live");
 
 status();clips();pubs();setInterval(pubs,3000);setInterval(status,1500);setInterval(clips,4000);

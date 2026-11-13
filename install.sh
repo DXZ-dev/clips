@@ -288,6 +288,8 @@ install_python_deps() {
     fi
   fi
   run "${VPIP[@]}" install -r "$APP_DIR/requirements.txt"
+  # YouTube/Twitch/Kick cambian a menudo: estas dos herramientas se actualizan siempre a la última versión
+  if ! run "${VPIP[@]}" install --upgrade yt-dlp streamlink; then warn "No se pudieron actualizar yt-dlp/streamlink (se usa la versión instalada)."; fi
   run "${VPIP[@]}" install --no-deps -e "$APP_DIR"
   ok "Paquetes instalados"
 
@@ -593,6 +595,15 @@ PY
     tail -n 20 "$LOG" >&2; die "La prueba de render falló."
   fi
   rm -rf "$tmp"
+  # Autodiagnóstico: render de cada diseño y camino completo directo -> clip con SU ffmpeg
+  local st; st="$("$LAUNCHER" selftest 2>&1 || true)"
+  printf '%s\n' "$st" >>"$LOG"
+  if printf '%s' "$st" | grep -q "todo correcto"; then ok "Autodiagnóstico (clipper selftest): todo correcto"
+  else
+    warn "El autodiagnóstico encontró problemas. Resultado:"
+    printf '%s\n' "$st" | grep -E "FALLA|AVISO|Resultado" | sed 's/^/      /' >&2
+    warn "Envía la salida completa de:  clipper selftest"
+  fi
 }
 
 # ----------------------------------------------------------------------------- desinstalar

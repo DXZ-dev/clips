@@ -49,6 +49,24 @@ A mano (Linux, Windows o Mac): `docker compose up -d --build` (CPU) o `docker co
 aunque comparte la VRAM con el juego y OBS. Si notas tirones mientras juegas, limita WSL2 creando `%USERPROFILE%\.wslconfig` con `[wsl2]` `processors=6` `memory=12GB`
 y no analices vídeos largos mientras juegas. Alternativa si el PC de juego va justo: deja el análisis en otra máquina (tu Proxmox) y dale la URL del directo de Twitch/YouTube (`streamlink`).
 
+## Dónde pongo el enlace de mi canal (Twitch, Kick, YouTube)
+Pestaña **Directo → Fuente del directo → 📺 Twitch · Kick · YouTube**: pega el enlace de tu canal (`twitch.tv/tucanal`, `kick.com/tucanal`, `youtube.com/@canal/live`) o el de un directo concreto,
+pulsa **Probar enlace** (te dice la plataforma, si está en directo y el título) y luego **Guardar y conectar**. No hace falta cuenta, token ni clave: se lee el directo público
+con `streamlink` y, si falla, `yt-dlp`. Si el canal no está en directo, queda esperando y se conecta solo (reintenta cada 15 s). Para OBS elige «OBS (RTMP)»: la propia tarjeta te da el servidor y la clave.
+Con enlace hay ~10-20 s de retraso respecto al directo real, y los directos de Twitch pueden insertar anuncios en la señal.
+Los enlaces de **vídeos** (YouTube, VOD de Twitch/Kick) van en la pestaña **Vídeos** y usan `yt-dlp`; desde servidores YouTube a veces pide verificar que no eres un robot:
+exporta tus cookies a un `cookies.txt` y pon la ruta en Ajustes → Vídeos. `yt-dlp` y `streamlink` se actualizan solos cada vez que ejecutas el instalador (los sitios cambian a menudo).
+*Estas integraciones se probaron con herramientas simuladas; desde el entorno de desarrollo no hay acceso a Twitch, Kick ni YouTube, así que conviene que pruebes con tu canal real.*
+
+## Previa del clip en tiempo real
+En **Directo → Previa del clip (9:16)** ves cómo quedaría un clip de los últimos 8 s con el diseño y los subtítulos actuales; cambia entre *Automático / Cámara + gameplay / Completo*
+y se regenera. Con «Previa en vivo» se actualiza cada ~12 s (consume algo de CPU; en baja resolución). No es vídeo continuo: es una previa casi en tiempo real.
+
+## Diagnóstico: `clipper selftest`
+Comprueba **en tu máquina** (con su ffmpeg y su Python) el render de cada diseño y el camino completo directo → clip con segmentos, e indica qué falla. El instalador lo ejecuta al terminar.
+Si un clip falla, el render ya reintenta solo con recorte fijo y luego con el diseño «Completo» (el clip lleva el campo `fallback` en su `.json`); si ves el error `Parsed_crop_0 … Invalid argument`,
+actualiza (`git pull` + reinstalar) y ejecuta `clipper selftest`; si algo sigue en FALLA, envía esa salida.
+
 ## Directo y vídeos grabados
 - **En directo:** con la ingesta en marcha, clipper saca clips solo de los momentos destacados (palabras clave, risas, picos de volumen, habla acelerada). Se activa/desactiva en **Directo → Clips automáticos**.
 - **Vídeo ya grabado** (pestaña **Vídeos**): arrastra el archivo (hasta `vod.max_upload_gb`, 20 GB) o pega un enlace (YouTube, VOD de Twitch… vía yt-dlp). Se analiza entero,
@@ -120,7 +138,7 @@ Los cuatro destinos están probados **solo con respuestas HTTP simuladas** (seg�
 ## Claves y proveedores de IA (se pegan en el panel, nunca en el código)
 **Ajustes → IA de texto** (ganchos, títulos y descripciones; botón «✨ Sugerir con IA» en el editor y «✨ Generar con IA» en la cola de publicación) y
 **Ajustes → Transcripción → API** (alternativa a Whisper local). Cada sección tiene **«Guardar y probar conexión»**.
-- Proveedores de texto: cualquier API compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio… con su URL base y modelo) o Anthropic.
+- Proveedores de texto: **Google Gemini** (clave gratuita en Google AI Studio; la clave va en cabecera), **Anthropic** (Claude) o cualquier API compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio… con su URL base y modelo).
 - Las claves se guardan en `secrets.local.yaml` (permisos 600, fuera de git; en Docker, en el volumen `/data`), no se muestran de nuevo y nunca van a `config.yaml`.
   También se aceptan por variable de entorno (`CLIPPER__AI__LLM__API_KEY`, `CLIPPER_API_KEY`).
 - Con la IA activada se envía a ese servicio la transcripción del clip; usa Ollama/LM Studio en tu red si no quieres que salga. «Generar título al encolar» + modo Auto de publicación publica sin revisión humana (y el texto del directo podría intentar manipular a la IA): déjalo apagado salvo que lo quieras.

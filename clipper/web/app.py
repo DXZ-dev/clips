@@ -73,6 +73,10 @@ class PasswordRequest(BaseModel):
     new: str
 
 
+class ProbeRequest(BaseModel):
+    url: str
+
+
 class DeviceRequest(BaseModel):
     device: str
 
@@ -348,6 +352,30 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
         except ValueError as e:
             raise HTTPException(409, str(e))
         return {"ok": True}
+
+    # ------------------------------------------------------------------ fuente de directo y previa en vivo
+    @app.post("/api/source/probe")
+    def source_probe(req: ProbeRequest):
+        """Comprueba un enlace de Twitch / Kick / YouTube: plataforma, si está en directo y su título."""
+        from .. import links
+        return links.probe_url(engine.cfg, req.url.strip())
+
+    @app.post("/api/live/preview")
+    def live_preview(seconds: float = 8.0):
+        try:
+            p = engine.live_preview(min(max(seconds, 4.0), 20.0))
+        except Engine.Busy as e:
+            raise HTTPException(429, str(e))
+        except RuntimeError as e:
+            raise HTTPException(409, str(e))
+        return {"url": f"/api/live/preview.mp4?v={int(p.stat().st_mtime * 1000)}"}
+
+    @app.get("/api/live/preview.mp4")
+    def live_preview_file():
+        p = ed.src_dir(engine.cfg) / "live_preview.mp4"
+        if not p.exists():
+            raise HTTPException(404, "sin previa")
+        return FileResponse(p, media_type="video/mp4", headers={"Cache-Control": "no-store"})
 
     # ------------------------------------------------------------------ IA (claves pegadas en Ajustes)
     def _ai(fn, *a, **kw):

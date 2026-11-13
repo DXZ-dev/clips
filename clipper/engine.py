@@ -140,6 +140,50 @@ class Engine:
         self._submit(job)
         return job
 
+    class Busy(RuntimeError):
+        pass
+
+    def live_preview(self, seconds: float = 8.0) -> Path:
+        """Previa 9:16 (540x960) de los últimos segundos del directo, con el diseño y los subtítulos actuales.
+        No bloquea el render de clips: si ya hay un render en curso lanza Busy."""
+        import subprocess
+        from .editor import src_dir
+        from .ffutil import duration as ffdur, require
+        from .render import render_spec
+        from .spec import EditWord, default_spec
+        b = self.reader.bounds()
+        if not b:
+            raise RuntimeError("Todavía no llega señal del directo (el buffer está vacío).")
+        t1 = b[1]
+        t0 = max(b[0], t1 - seconds)
+        if t1 - t0 < 2:
+            raise RuntimeError("Aún hay muy poco directo en el buffer: espera unos segundos.")
+        if not self.render_lock.acquire(blocking=False):
+            raise Engine.Busy("Hay un clip renderizándose ahora mismo; inténtalo en unos segundos.")
+        try:
+            ci = self.reader.prepare_range(t0, t1)
+            try:
+                d = src_dir(self.cfg)
+                d.mkdir(parents=True, exist_ok=True)
+                src, out = d / "live_preview_src.mp4", d / "live_preview.mp4"
+                r = subprocess.run([require("ffmpeg"), "-y", "-v", "error", "-nostdin", "-f", "concat", "-safe", "0", "-i",
+                                    str(ci.workdir / "list.txt"), "-c", "copy", "-movflags", "+faststart", str(src)],
+                                   capture_output=True, text=True)
+                sdur = ffdur(str(src)) if r.returncode == 0 else 0.0
+                if sdur < 1:
+                    raise RuntimeError("No se pudo preparar la previa (el buffer aún no tiene vídeo válido).")
+                seg0 = ci.seg_start
+                words = [EditWord(start=max(0.0, w.start - seg0), end=max(0.0, w.end - seg0), text=w.text)
+                         for w in self.store.between(t0, t1)]
+                ts = max(0.0, min(t0 - seg0, sdur - 1.0))
+                spec = default_spec(self.cfg, words, ts, min(max(t1 - seg0, ts + 1.0), sdur))
+                render_spec(self.cfg, src, spec, out, preview=True)
+                return out
+            finally:
+                ci.cleanup()
+        finally:
+            self.render_lock.release()
+
     def _auto(self, tr: Trigger) -> None:
         tc = self.cfg.triggers
         self.event(tr.kind, tr.detail, at=round(tr.t, 1))
