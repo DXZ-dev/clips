@@ -454,6 +454,24 @@ EOF
   fi
 }
 
+# Espera a que el panel responda de verdad (no basta con que systemd diga "activo").
+wait_ready() {
+  [ "$SERVICE_OK" = 1 ] || return 0
+  [ "$DRY" = 1 ] && return 0
+  step "Esperando a que el panel responda"
+  local port code
+  port="${PORT:-$("$VPY" -c 'from clipper.config import load_config; print(load_config().server.port)' 2>/dev/null || echo 7848)}"
+  for _ in $(seq 1 60); do
+    code="$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://127.0.0.1:$port/login" 2>/dev/null || true)"
+    case "$code" in 200|301|302|307|401) ok "El panel responde en el puerto $port"; return 0 ;; esac
+    sleep 2
+  done
+  warn "El servicio está activo pero el panel NO responde en el puerto $port tras 2 minutos."
+  warn "Mira los motivos con:  journalctl -u clipper -n 60 --no-pager"
+  systemctl status clipper --no-pager -l 2>&1 | tail -n 15 >&2 || true
+  journalctl -u clipper -n 25 --no-pager 2>&1 | tail -n 25 >&2 || true
+}
+
 # ----------------------------------------------------------------------------- verificación
 verify() {
   [ "$NO_VERIFY" = 1 ] && return 0
@@ -587,6 +605,7 @@ main() {
   download_models
   install_service
   verify
+  wait_ready
   [ "$DRY" = 1 ] || summary
 }
 

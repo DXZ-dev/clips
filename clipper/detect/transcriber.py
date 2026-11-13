@@ -49,9 +49,15 @@ class LiveTranscriber:
         self.pend_t0 = 0.0
         self.processed_until = 0.0
         self.device = resolve_device(cfg.compute.device)
-        self.vad = SpeechDetector(self.tc.vad.threshold, self.tc.vad.min_silence_ms)
+        self._vad: SpeechDetector | None = None      # se crea al cargar el modelo (importar torch tarda): el panel abre sin esperar
         self._model = None
         self._lock = threading.Lock()
+
+    @property
+    def vad(self) -> SpeechDetector:
+        if self._vad is None:
+            self._vad = SpeechDetector(self.tc.vad.threshold, self.tc.vad.min_silence_ms)
+        return self._vad
 
     def _model_ref(self) -> str:
         """Carpeta local si existe (./models/whisper-<nombre> o una ruta), si no el nombre (caché local)."""
@@ -67,6 +73,7 @@ class LiveTranscriber:
             return
         if self._model is not None:
             return
+        _ = self.vad                                # carga silero-vad (y torch) aquí, en el hilo de fondo
         from faster_whisper import WhisperModel
         ct = self.tc.compute_type
         if ct == "auto":
