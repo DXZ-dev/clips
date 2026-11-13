@@ -155,6 +155,28 @@ def frame_jpeg(cfg: Config, name: str, t: float, width: int = 960) -> bytes:
     return r.stdout
 
 
+def storage_used(cfg: Config) -> int:
+    """Bytes que ocupan los clips y sus fuentes."""
+    return sum(f.stat().st_size for f in out_dir(cfg).rglob("*") if f.is_file())
+
+
+def prune_storage(cfg: Config, protect: set[str] | None = None) -> list[str]:
+    """Si se pasa del tope (`clip.max_storage_gb`) borra los clips más viejos hasta quedar un 10 % por debajo. `protect`: nombres que no se tocan
+    (p. ej. pendientes de publicar). Devuelve los borrados."""
+    cap = int(cfg.clip.max_storage_gb * 1024 ** 3)
+    if cap <= 0 or not out_dir(cfg).exists() or storage_used(cfg) <= cap:
+        return []
+    target, removed = int(cap * 0.9), []
+    for p in sorted(out_dir(cfg).glob("*.mp4"), key=lambda f: f.stat().st_mtime):
+        if storage_used(cfg) <= target:
+            break
+        if protect and p.name in protect:
+            continue
+        remove_clip_files(cfg, p.stem)
+        removed.append(p.name)
+    return removed
+
+
 def remove_clip_files(cfg: Config, stem: str) -> None:
     """Borra el clip y sus archivos. Una fuente compartida solo se borra cuando ya ningún clip la usa."""
     o = out_dir(cfg)

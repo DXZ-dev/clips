@@ -83,3 +83,28 @@ def test_multi_stream_plan():
     assert "CLIPPER__CLIP__OUTPUT_DIR=" in p["unit"]
     with pytest.raises(ValueError):
         multi.plan(Config(), 1)
+
+
+def test_storage_prune_and_streams(tmp_path, monkeypatch):
+    import os
+    import time
+    from clipper import editor as ed
+    from clipper import streams
+    from clipper.config import Config
+    monkeypatch.setattr("clipper.config.STATE", tmp_path)
+    c = Config()
+    c.clip.output_dir = str(tmp_path / "out")
+    c.clip.max_storage_gb = 3 / 1024        # 3 MB
+    o = ed.out_dir(c)
+    o.mkdir()
+    for i in range(5):
+        p = o / f"c{i}.mp4"
+        p.write_bytes(b"x" * 1024 * 1024)
+        os.utime(p, (time.time() - 100 + i, time.time() - 100 + i))
+    gone = ed.prune_storage(c, protect={"c0.mp4"})
+    assert "c0.mp4" not in gone and gone[0] == "c1.mp4" and ed.storage_used(c) <= 3 * 1024 * 1024 * 0.9 + 1
+    streams.remember("https://kick.com/abc")
+    streams.remember("https://kick.com/abc")
+    assert len(streams.load()) == 1 and streams.load()[0]["platform"] == "kick"
+    streams.forget("https://kick.com/abc")
+    assert streams.load() == []

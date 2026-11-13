@@ -54,6 +54,7 @@ class ClipCfg(BaseModel):
     default_seconds: int = 30
     duration_options: list[int] = [15, 30, 60]
     output_dir: str = "./output_clips"
+    max_storage_gb: float = Field(10.0, ge=0, le=100000)   # tope de espacio de clips; al pasarlo se borran los más viejos (0 = sin límite)
     auto_hook: bool = False                   # rótulo de gancho arriba (el título del clip) los primeros segundos
     hook_seconds: float = Field(3.0, ge=0.5, le=15)
     watermark_auto: bool = True               # marca con el nombre del canal

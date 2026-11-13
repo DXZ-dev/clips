@@ -80,7 +80,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
  <div class="seg2" id="stype"><button data-t="live">📺 Twitch · Kick · YouTube</button><button data-t="rtmp">🎥 OBS (RTMP)</button><button data-t="file">🎞 Archivo de prueba</button></div>
  <div id="src_live" style="margin-top:12px"><label>Enlace del canal o del directo <input id="src_url" placeholder="https://www.twitch.tv/tucanal · https://kick.com/tucanal · https://www.youtube.com/@canal/live"></label>
   <div class="mut" style="font-size:12px">Vale el enlace de tu canal o el de un directo concreto. No hace falta cuenta ni token: se lee el directo público. Si el canal no está en directo, se conecta solo cuando empiece.</div>
-  <div class="row" style="margin-top:8px"><button id="src_probe">Probar enlace</button></div></div>
+  <div class="row" style="margin-top:8px"><button id="src_probe">Probar enlace</button></div><div id="src_hist" style="margin-top:10px"></div></div>
  <div id="src_rtmp" style="display:none;margin-top:12px"><div class="mut" style="font-size:13px;line-height:1.7">En OBS: Ajustes → Emisión → Servicio <b>Personalizado</b><br>Servidor: <code>rtmp://<span id="src_host"></span>:1935/live</code><br>Clave de retransmisión: <code>obs</code></div>
   <div class="warn">OBS solo emite a un destino a la vez. Para seguir emitiendo a Twitch a la vez usa el plugin «Multiple RTMP outputs», o conecta por enlace de tu canal.</div></div>
  <div id="src_file" style="display:none;margin-top:12px"><label>Ruta del vídeo de prueba (en el servidor) <input id="src_file_in" placeholder="./samples/test.mp4"></label></div>
@@ -106,7 +106,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   <div class="mut" style="font-size:12px;margin-top:6px">«Directo oficial» es el reproductor de la propia plataforma (Twitch, Kick o YouTube): en vivo, sin retraso añadido. Los clips salen de la señal de clipper, que va unos segundos por detrás. Solo se carga mientras esta pestaña está abierta.</div></section>
 <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
   <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
-  <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto">Automático</button><button data-l="split">Cámara + gameplay</button><button data-l="fit">Completo</button><button id="pv_collab" data-l="collab">👥 Colaborar</button></div>
+  <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto" title="Clip vertical 9:16 que sigue a la persona o a la acción">📱 Vertical + seguimiento</button><button data-l="split">Cámara + gameplay</button><button data-l="fit" title="Todo el directo 16:9 entero, centrado, con fondo desenfocado arriba y abajo">🖥 Completo 16:9</button><button id="pv_collab" data-l="collab">👥 Colaborar</button></div>
   <div id="collab_box" style="display:none;margin-top:10px"><div class="mut" style="font-size:12px;margin-bottom:6px">Une dos directos: <b>arriba</b> el primero (el de «Fuente del directo») y <b>abajo</b> el segundo. Los clips salen con los dos streamers en pantalla dividida.</div><label>2.º directo (enlace del canal) <input id="co_url2" placeholder="https://kick.com/otro-streamer"></label><div class="row" style="margin-top:8px"><button id="co_on" class="sel">Activar colaboración</button><button id="co_off">Quitar 2.º directo</button><span id="co_msg" class="mut"></span></div></div>
   <div class="row" style="margin-top:10px"><button id="pv_now">Actualizar previa</button><label class="chk" style="margin:0"><input type="checkbox" id="pv_live"> Previa en vivo (cada ~12 s)</label></div>
   
@@ -201,7 +201,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
 </div>
 </div>
 <div class="view" id="v_clips">
-<section class="card"><h2>Clips generados</h2><div class="row" id="clipbar" style="margin-bottom:10px"><label class="chk" style="margin:0"><input type="checkbox" id="sel_all"> Seleccionar todo</label><span class="mut" id="sel_n">0 seleccionados</span>
+<section class="card"><h2>Clips generados</h2><div class="mut" id="storage_line" style="margin-bottom:8px;font-size:13px"></div><div class="row" id="clipbar" style="margin-bottom:10px"><label class="chk" style="margin:0"><input type="checkbox" id="sel_all"> Seleccionar todo</label><span class="mut" id="sel_n">0 seleccionados</span>
  <button id="sel_dl">⬇ Descargar seleccionados (.zip)</button><button id="sel_del">🗑 Borrar seleccionados</button><button id="del_all" style="border-color:#7a2b2b;color:#ff9a9a">🗑 Borrar todo</button></div>
 <div class="row" style="margin-bottom:10px"><label style="margin:0" class="mut">Canal / origen <select id="clip_filter" style="display:inline-block;width:auto;margin-left:6px"><option value="">Todos</option></select></label></div><div id="clips"></div></section>
 </div>
@@ -242,6 +242,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   </fieldset>
   <fieldset><legend>Vídeos (enlaces y análisis)</legend>
    <label>Clips como máximo por vídeo <input id="vd_max" type="number" min="1" max="50"></label>
+   <label>Límite de espacio de clips (GB; 0 = sin límite; se borran los más viejos) <input id="vd_maxgb" type="number" min="0" step="1"></label>
    <label>Cookies para yt-dlp (archivo cookies.txt, ruta en el servidor) <input id="vd_cookies" placeholder="vacío = sin cookies"></label>
    <label class="chk" style="grid-column:1/-1"><input type="checkbox" id="nt_on"> 📲 Avisarme al móvil cuando haya un clip listo</label>
    <label>Discord (URL del webhook) <input id="nt_dc" type="password" autocomplete="off" placeholder="vacío = conservar"></label>
@@ -375,7 +376,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- fillPub(c);V("upd_auto",c.update.auto_check);updLoad();V("vd_max",c.vod.max_clips);V("nt_on",c.notify.enabled);V("nt_ch",c.notify.telegram_chat);V("nt_url",c.server.public_url);$("nt_dc").placeholder=c.notify.discord_webhook_set?"guardado (vacío = conservar)":"https://discord.com/api/webhooks/…";$("nt_tk").placeholder=c.notify.telegram_token_set?"guardado (vacío = conservar)":"123456:ABC…";V("vd_cookies",c.vod.cookies_file);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);V("upd_auto",c.update.auto_check);updLoad();V("vd_max",c.vod.max_clips);V("vd_maxgb",c.clip.max_storage_gb);V("nt_on",c.notify.enabled);V("nt_ch",c.notify.telegram_chat);V("nt_url",c.server.public_url);$("nt_dc").placeholder=c.notify.discord_webhook_set?"guardado (vacío = conservar)":"https://discord.com/api/webhooks/…";$("nt_tk").placeholder=c.notify.telegram_token_set?"guardado (vacío = conservar)":"123456:ABC…";V("vd_cookies",c.vod.cookies_file);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -386,7 +387,7 @@ $("save").onclick=async()=>{
   triggers:{cooldown_seconds:+$("g_cool").value,auto_clip_seconds:+$("g_auto").value,post_roll_seconds:+$("g_post").value,
    energy:{enabled:$("e_on").checked,spike_db:+$("e_db").value},cadence:{enabled:$("c_on").checked},
    keywords:{enabled:$("k_on").checked,laughter:$("k_laugh").checked,phrases:$("k_phr").value.split("\n").map(x=>x.trim()).filter(Boolean)}},
-  server:{public_url:$("nt_url").value.trim()},notify:{enabled:$("nt_on").checked,discord_webhook:$("nt_dc").value.trim(),telegram_token:$("nt_tk").value.trim(),telegram_chat:$("nt_ch").value.trim()},publish:pubPatch(),vod:{max_clips:+$("vd_max").value||8,cookies_file:$("vd_cookies").value.trim()},ai:aiPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
+  clip:{max_storage_gb:+$("vd_maxgb").value||0},server:{public_url:$("nt_url").value.trim()},notify:{enabled:$("nt_on").checked,discord_webhook:$("nt_dc").value.trim(),telegram_token:$("nt_tk").value.trim(),telegram_chat:$("nt_ch").value.trim()},publish:pubPatch(),vod:{max_clips:+$("vd_max").value||8,cookies_file:$("vd_cookies").value.trim()},ai:aiPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
  try{const r=await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
   $("smsg").textContent=r.changed.length?"Aplicado: "+r.changed.join(", "):"Sin cambios";$("a_clear").checked=false;loadSettings()}
  catch(e){$("smsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};
@@ -426,6 +427,16 @@ $("i_list").onclick=async()=>{const m=$("i_sel");m.textContent="Consultando…";
 $("i_models").onchange=()=>{$("i_model").value=$("i_models").value};$("a_test").onclick=()=>testAi("transcribe","a_msg");
 $("settings").addEventListener("toggle",()=>{if($("settings").open)loadSettings()});
 
+const CONSOLE={youtube:["https://console.cloud.google.com/apis/credentials","Google Cloud → Credenciales → «ID de cliente de OAuth» (tipo Aplicación web) y activa «YouTube Data API v3»"],
+ tiktok:["https://developers.tiktok.com/apps/","TikTok for Developers → tu app → Login Kit y Content Posting API"],
+ instagram:["https://developers.facebook.com/apps/","Meta for Developers → tu app → Instagram Graph API (token largo)"]};
+function cnRender(p){for(const k of Object.keys(CONSOLE)){const el=$("cn_"+k);if(!el)continue;const d=p.destinations[k];if(!d)continue;
+ const st=!d.enabled?'<span class="mut">Activa el destino y guarda</span>':!d.configured?'<span class="err">Faltan las claves de arriba (se crean una sola vez en la consola del servicio)</span>':d.oauth&&!d.connected?'<span class="err">Claves listas · sin conectar</span>':'<span style="color:var(--ok)">✔ Conectado</span>';
+ const btn=d.enabled&&d.configured&&d.oauth?(d.connected?`<button data-cndisc="${k}">Desconectar</button>`:`<button class="sel" data-cncon="${k}">🔗 Conectar con ${esc(d.label)} (1 clic)</button>`):"";
+ el.innerHTML=`<div>${st} ${btn}</div><div class="mut" style="font-size:12px;margin-top:6px">1) Crea la app una vez: <a href="${CONSOLE[k][0]}" target="_blank" rel="noopener">abrir consola</a> — ${CONSOLE[k][1]}.<br>2) En «Redirect URI» pega: <code id="ru_${k}">${esc(d.redirect_uri||"")}</code> <button data-cpru="${k}" style="padding:1px 8px">Copiar</button><br>3) Pega aquí las claves, guarda y pulsa Conectar: la cuenta queda enlazada y no hay que repetirlo.</div>`}
+ document.querySelectorAll("[data-cncon]").forEach(b=>b.onclick=async()=>{try{await $("save").onclick()}catch(e){}location.href=`/oauth/${b.dataset.cncon}/start`});
+ document.querySelectorAll("[data-cndisc]").forEach(b=>b.onclick=async()=>{await api(`/api/publish/${b.dataset.cndisc}/disconnect`,{method:"POST"});pubSig="";pubs()});
+ document.querySelectorAll("[data-cpru]").forEach(b=>b.onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($("ru_"+b.dataset.cpru).textContent);b.textContent="✔"})}
 const DEST={
  youtube:{label:"YouTube Shorts",f:[["client_id","ID de cliente (Google Cloud)"],["client_secret","Secreto de cliente",1],["privacy","Visibilidad",["private","unlisted","public"]]]},
  tiktok:{label:"TikTok",f:[["client_key","Client key"],["client_secret","Client secret",1],["privacy_level","Privacidad",["SELF_ONLY","MUTUAL_FOLLOW_FRIENDS","FOLLOWER_OF_CREATOR","PUBLIC_TO_EVERYONE"]]]},
@@ -436,6 +447,7 @@ function buildDestSettings(){ $("destset").innerHTML=Object.entries(DEST).map(([
  <label>Modo <select id="d_${k}_mode"><option value="review">Revisión (apruebo yo)</option><option value="auto">Automático</option></select></label>
  ${d.f.map(([f,l,x])=>Array.isArray(x)?`<label>${l}<select id="d_${k}_${f}">${x.map(o=>`<option>${o}</option>`).join("")}</select></label>`:
   `<label>${l}<input id="d_${k}_${f}" ${x?'type="password" autocomplete="off"':""}></label>${x?`<label class="chk"><input type="checkbox" id="c_${k}_${f}"> Borrar guardado</label>`:""}`).join("")}
+ ${CONSOLE[k]?`<div class="cnbox" id="cn_${k}" style="margin-top:10px;padding:10px;border:1px solid var(--bd,#2a2f3a);border-radius:8px"></div>`:""}
  </details>`).join("")}
 buildDestSettings();
 function fillPub(c){const p=c.publish;V("p_on",p.enabled);V("p_dry",p.dry_run);V("p_man",p.include_manual);V("p_max",p.max_per_day);V("p_gap",p.min_gap_minutes);
@@ -452,6 +464,7 @@ let pubSig="";
 async function pubs(){let p;try{p=await api("/api/publish")}catch{return}
  window.pubDests=p.enabled?Object.entries(p.destinations).filter(([k,d])=>d.enabled).map(([k,d])=>[k,d.label]):[];if(JSON.stringify(window.pubDests)!==window._pd){window._pd=JSON.stringify(window.pubDests);lastClips=""}
  $("pubflag").textContent=!p.enabled?"· desactivada":p.dry_run?"· SIMULACRO":"";
+ try{cnRender(p)}catch(e){}
  const sig=JSON.stringify(p);if(sig===pubSig)return;pubSig=sig;
  $("dests").innerHTML=Object.entries(p.destinations).map(([k,d])=>{
   const chip=!d.enabled?'<span class="mut">desactivado</span>':!d.configured?'<span class="err">sin configurar</span>':d.oauth&&!d.connected?'<span class="err">sin conectar</span>':'<span style="color:var(--ok)">listo</span>';
@@ -550,6 +563,11 @@ let FACE=null;async function faceCheck(){if(!$("studio").offsetParent||document.
  const off=FACE===false;$("cap2").querySelector(".capr").style.opacity=off?.35:1;$("cb_box").style.opacity=off?.35:1;
  $("cb_box").querySelector("span").textContent=off?"2 · Cámara (sin rostro: desactivada)":"2 · Cámara"}
 setInterval(faceCheck,4000);
+async function storageLoad(){try{const r=await api("/api/storage"),g=x=>(x/1073741824).toFixed(2);$("storage_line").textContent=`💾 Espacio de clips: ${g(r.used)} GB`+(r.limit?` de ${g(r.limit)} GB (al llegar al tope se borran los más viejos)`:" (sin límite)")}catch(e){}}
+async function histLoad(){try{const l=await api("/api/streams");$("src_hist").innerHTML=l.length?'<div class="mut" style="font-size:12px;margin-bottom:4px">Directos guardados (clic para usar):</div>'+l.slice(0,12).map(i=>`<div class="row" style="margin:2px 0"><button data-hu="${esc(i.url)}" style="text-align:left">${esc((i.platform||"")+" · "+(i.channel||i.url))}</button><span class="mut" style="font-size:11px">${esc(i.last_used||"")}</span><button data-hx="${esc(i.url)}" title="Quitar del historial">✕</button></div>`).join(""):"";
+ document.querySelectorAll("[data-hu]").forEach(b=>b.onclick=()=>{$("src_url").value=b.dataset.hu});
+ document.querySelectorAll("[data-hx]").forEach(b=>b.onclick=async()=>{await fetch("/api/streams?url="+encodeURIComponent(b.dataset.hx),{method:"DELETE"});histLoad()})}catch(e){}}
+setTimeout(()=>{storageLoad();histLoad()},1500);setInterval(storageLoad,30000);
 let pvBusy=false,pvTimer=null,pvAt=0;
 async function pvRefresh(manual){if(pvBusy)return;pvBusy=true;const m=$("pv_msg");if(manual)m.textContent="Generando previa…";
  try{const r=await api("/api/live/preview?seconds=8",{method:"POST"});const v=$("pv_vid");v.src=r.url;v.play().catch(()=>{});pvAt=Date.now();m.textContent=""}

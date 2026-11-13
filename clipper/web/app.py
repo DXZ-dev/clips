@@ -675,6 +675,21 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
         return FileResponse(tmp.name, media_type="application/zip", filename=f"clips_{_time.strftime('%Y%m%d_%H%M%S')}.zip",
                             background=BackgroundTask(os.unlink, tmp.name))
 
+    @app.get("/api/storage")
+    def storage():
+        return {"used": ed.storage_used(engine.cfg), "limit": int(engine.cfg.clip.max_storage_gb * 1024 ** 3)}
+
+    @app.get("/api/streams")
+    def streams_list():
+        from .. import streams
+        return streams.load()
+
+    @app.delete("/api/streams")
+    def streams_forget(url: str):
+        from .. import streams
+        streams.forget(url)
+        return {"ok": True}
+
     @app.post("/api/clips/delete")
     def clips_delete(req: NamesRequest):
         """Borra los clips elegidos (vídeo, metadatos, fuente si nadie más la usa) y sus entradas pendientes en la cola de publicación."""

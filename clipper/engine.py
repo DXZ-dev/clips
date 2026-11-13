@@ -20,6 +20,7 @@ from .detect.visual import FPS as VIS_FPS, VisualDetector
 from .ffutil import cuda_available, pick_encoder, resolve_device
 from .pipeline import clip_from_range
 from .publish.base import TokenStore
+from . import editor as editor_mod
 from . import updater
 from .vod import VideoManager, make_moment
 from .publish.queue import PublishQueue
@@ -78,6 +79,9 @@ class Engine:
 
     # ------------------------------------------------------------------ ciclo de vida
     def start(self) -> None:
+        from . import streams
+        if self.cfg.source.type == "live":
+            streams.remember(self.cfg.source.url, self.cfg.source.url2)
         self.buffer.start()
         self.publisher.start()
         self.videos.start()
@@ -136,6 +140,9 @@ class Engine:
                 self.transcriber_error = None
             else:
                 self.transcriber, self.transcriber_ready = None, False
+        if "source" in changed:
+            from . import streams
+            streams.remember(self.cfg.source.url, self.cfg.source.url2)
         if "source" in changed or "buffer" in changed:
             self.buffer.stop()
             self.buffer = RollingBuffer(self.cfg)
@@ -228,15 +235,33 @@ class Engine:
         (voz + volumen + movimiento + reacción…) y decide por puntuación (ver _flush_pending)."""
         if tr.kind not in ("action", "reaction"):                # esas dos son muy frecuentes: solo cuentan, no se anuncian
             self.event(tr.kind, tr.detail, at=round(tr.t, 1))
-        if not self.cfg.triggers.auto_enabled or self.paused:
+        if not self.cfg.triggers.auto_enabled or self.paused or not self._stream_live():
             return
         with self._plock:
             if not self._pending:
                 self._pending_since = time.time()
             self._pending.append(tr)
 
+    def _stream_live(self) -> bool:
+        if self.cfg.source.type == "file":                     # archivo simulando directo: siempre «en directo»
+            return True
+        return bool(self.reader.status().get("live"))
+
+    def prune_storage(self) -> None:
+        try:
+            protect = {i["clip"] for i in self.publisher.list() if i["status"] in ("pending_review", "queued", "uploading")}
+            gone = editor_mod.prune_storage(self.cfg, protect)
+            if gone:
+                self.event("system", f"espacio: se borraron {len(gone)} clip(s) antiguos para mantener el límite de {self.cfg.clip.max_storage_gb:g} GB")
+        except Exception:  # noqa: BLE001
+            log.exception("limpieza de espacio")
+
     def _decider(self) -> None:
+        n = 0
         while not self._stop.wait(1.0):
+            n += 1
+            if n % 60 == 1:
+                self.prune_storage()
             try:
                 self._flush_pending()
             except Exception:  # noqa: BLE001
@@ -244,7 +269,7 @@ class Engine:
 
     def _flush_pending(self, force: bool = False) -> None:
         tc = self.cfg.triggers
-        if self.paused:
+        if self.paused or not self._stream_live():           # directo parado = no se hacen clips
             with self._plock:
                 self._pending = []
             return
@@ -405,6 +430,7 @@ class Engine:
             out = clip_from_range(self.cfg, t0, t1, words, job.reason, job.detail)
         job.status, job.file = "done", out.name
         self.event("clip", f"listo: {out.name}", job=job.id)
+        self.prune_storage()
         try:
             j = out.with_suffix(".json")
             meta = json.loads(j.read_text()) if j.exists() else {}
