@@ -67,6 +67,10 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
  <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes <i class="badge" id="nu"></i></a></nav><a id="pausebtn" title="Pausar o reanudar la generación automática de clips" style="padding:6px 12px;border-radius:999px;border:1px solid var(--line);cursor:pointer;font-size:13px">⏸ Pausar clips</a><a id="logout" style="display:none;margin-left:auto;color:var(--mut);cursor:pointer">Salir</a></header>
 <main>
 <div class="view on" id="v_live">
+<section class="card" id="accard" style="margin-bottom:12px;border-color:#5a4d00"><h2>Configuración automática</h2>
+ <div class="row"><button id="ac_go" class="big" style="margin:0;max-width:420px">✨ Configurar todo automáticamente</button></div>
+ <div class="mut" style="font-size:13px;margin-top:8px">Ubica tu cámara (con la IA de tu API si la tienes), elige el diseño 9:16, aplica subtítulos estilo TikTok, ajusta los detectores y el modelo de voz a tu equipo y deja el modo automático «a revisión». Después solo revisa la previa. Puedes volver a pulsarlo cuando cambies de directo.</div>
+ <div id="ac_rep" style="margin-top:10px;font-size:13px;line-height:1.7"></div></section>
 <section class="card" id="srccard" style="margin-bottom:12px"><h2>Fuente del directo <span id="src_plat" class="chip2"></span> <span id="src_state" class="mut" style="text-transform:none;letter-spacing:0"></span></h2>
  <div class="seg2" id="stype"><button data-t="live">📺 Twitch · Kick · YouTube</button><button data-t="rtmp">🎥 OBS (RTMP)</button><button data-t="file">🎞 Archivo de prueba</button></div>
  <div id="src_live" style="margin-top:12px"><label>Enlace del canal o del directo <input id="src_url" placeholder="https://www.twitch.tv/tucanal · https://kick.com/tucanal · https://www.youtube.com/@canal/live"></label>
@@ -90,8 +94,9 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
    <button id="lv_mute">🔇 Activar sonido</button><button id="lv_edge">⏩ Ir al directo</button><span class="mut" id="lv_info" style="font-size:13px"></span></div>
   <div class="row" style="margin-top:10px"><button id="zn_edit">🎯 Marcar zonas sobre el directo</button></div>
   <div id="zn_tools" style="display:none;margin-top:8px"><div class="mut" style="font-size:12px;margin-bottom:6px"><b style="color:#35d07f">Zona 1 (verde):</b> la parte del juego que se recorta y se muestra abajo; el movimiento se busca solo dentro de ella, como las zonas de un DVR. <b style="color:#ffe600">Zona 2 (amarilla):</b> tu cámara, que se recorta y se pone arriba. Arrastra para mover y tira de la esquina para cambiar el tamaño.</div>
-   <div class="row"><button id="zn_save" class="sel">Guardar zonas</button><button id="zn_det">🔍 Detectar cámara</button><button id="zn_clr1">Quitar zona 1</button><button id="zn_auto">Cámara automática</button>
-    <label class="chk" style="margin:0"><input type="checkbox" id="zn_lock" checked> Proporción fija de la zona 1</label></div><div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
+   <div class="row"><button id="zn_save" class="sel">Guardar zonas</button><button id="zn_det">🔍 Detectar cámara</button><button id="zn_ai" title="Usa el modelo de visión de tu API (Gemini, Claude, GPT-4o…) para ubicar la cámara y los rostros">🤖 Detectar con IA</button><button id="zn_clr1">Quitar zona 1</button><button id="zn_auto">Cámara automática</button>
+    <label class="chk" style="margin:0"><input type="checkbox" id="zn_lock" checked> Proporción fija de la zona 1</label>
+    <label class="chk" style="margin:0"><input type="checkbox" id="zn_follow" checked> Seguir el rostro en la cámara</label><label class="mut" style="margin:0">Zoom <input type="range" id="zn_zoom" min="100" max="200" value="115" style="width:90px;display:inline-block;vertical-align:middle"> <b id="zn_zv">1.15×</b></label></div><div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
   <div class="mut" style="font-size:12px;margin-top:6px">«Directo oficial» es el reproductor de la propia plataforma (Twitch, Kick o YouTube): en vivo, sin retraso añadido. Los clips salen de la señal de clipper, que va unos segundos por detrás. Solo se carga mientras esta pestaña está abierta.</div></section>
 <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
   <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
@@ -490,7 +495,7 @@ $("src_url").oninput=()=>{const p=platOf($("src_url").value);$("src_plat").textC
 async function loadSource(){let c;try{c=await api("/api/settings")}catch{return}
  const t=c.source.type;srcType(["live","streamlink","ytdlp"].includes(t)?"live":t==="rtmp"?"rtmp":"file");
  if(["live","streamlink","ytdlp"].includes(t))$("src_url").value=c.source.url;$("src_url").oninput();$("src_file_in").value=c.source.file;
- document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode));ZN.z1=c.layout.gameplay_zone;ZN.z2=c.layout.facecam;ZN.pct=c.layout.facecam_height_pct;window._srcUrl=c.source.url;znDraw()}
+ document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode));ZN.z1=c.layout.gameplay_zone;ZN.z2=c.layout.facecam;$("zn_follow").checked=c.layout.cam_follow;$("zn_zoom").value=Math.round(c.layout.cam_zoom*100);$("zn_zv").textContent=c.layout.cam_zoom.toFixed(2)+"×";ZN.pct=c.layout.facecam_height_pct;window._srcUrl=c.source.url;znDraw()}
 const PUT=b=>({method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
 $("src_probe").onclick=async()=>{const m=$("src_msg"),u=$("src_url").value.trim();m.className="mut";if(!u){m.className="err";m.textContent="Pega un enlace.";return}m.textContent="Comprobando (puede tardar unos segundos)…";
  try{const r=await api("/api/source/probe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});
@@ -531,6 +536,12 @@ SBF.forEach(([id,k,t])=>{$(id).addEventListener(t==="n"?"input":"change",()=>{if
 $("sb_ok").onclick=async()=>{try{await api("/api/settings",PUT({subtitles:{reviewed:true}}));$("sb_msg").className="mut";$("sb_msg").innerHTML='<span style="color:var(--ok)">✔ Guardado: se usará en los clips automáticos.</span>';loadSubs();loadAuto()}catch(e){$("sb_msg").className="err";$("sb_msg").textContent=e.message}};
 $("sb_reset").onclick=()=>sbPut({font:"DejaVu Sans",font_size:84,outline:9,shadow:0,bold:true,uppercase:true,offset_y:0,position:"lower_third",primary_color:"#FFFFFF",highlight_color:"#FFE600",outline_color:"#000000",max_words_per_line:3,enabled:true});
 loadSubs();
+/* ---- configuración automática ---- */
+$("ac_go").onclick=async()=>{const b=$("ac_go"),r=$("ac_rep");b.disabled=true;b.textContent="Configurando…";r.innerHTML='<span class="mut">Analizando el directo…</span>';
+ try{const x=await api("/api/autoconfig",{method:"POST"});const I={ok:"✔",warn:"⚠",skip:"○"},C={ok:"var(--ok)",warn:"#ffb86b",skip:"var(--mut)"};
+  r.innerHTML=x.steps.map(s=>`<div style="color:${C[s.status]}"><b>${I[s.status]} ${esc(s.name)}:</b> ${esc(s.detail)}</div>`).join("")+'<div class="mut" style="margin-top:6px">Listo. Mira la <b>Previa del clip</b> y ajusta lo que quieras.</div>';
+  loadSource();loadSubs();loadAuto();amNets();pvRefresh(true)}catch(e){r.innerHTML='<span class="err">'+esc(e.message)+"</span>"}
+ b.disabled=false;b.textContent="✨ Configurar todo automáticamente"};
 /* ---- directo en vivo (HLS) ---- */
 /* ---- reproductor oficial + zonas ---- */
 const ZN={z1:null,z2:null,on:false,pct:34};let LVMODE="official",lvFrame="";
@@ -555,8 +566,11 @@ $("zn_edit").onclick=()=>znSet(!ZN.on);
    else{r.x=c(a.x+dx,0,1-a.w);r.y=c(a.y+dy,0,1-a.h)}znDraw()});
   const up=()=>{m=null};e.addEventListener("pointerup",up);e.addEventListener("pointercancel",up)}})();
 const rnd=r=>r&&Object.fromEntries(Object.entries(r).map(([k,v])=>[k,+v.toFixed(4)]));
-$("zn_save").onclick=async()=>{const m=$("zn_msg");try{await api("/api/settings",PUT({layout:{mode:"split",facecam:rnd(ZN.z2),gameplay_zone:rnd(ZN.z1)}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Zonas guardadas. Diseño «Cámara + gameplay» activado.</span>';loadSource();pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};
+$("zn_save").onclick=async()=>{const m=$("zn_msg");try{await api("/api/settings",PUT({layout:{mode:"split",facecam:rnd(ZN.z2),gameplay_zone:rnd(ZN.z1),cam_follow:$("zn_follow").checked,cam_zoom:+$("zn_zoom").value/100}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Zonas guardadas. Diseño «Cámara + gameplay» activado.</span>';loadSource();pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};
 $("zn_det").onclick=async()=>{const m=$("zn_msg");m.className="mut";m.textContent="Buscando la cámara…";try{const r=await api("/api/live/facecam/detect",{method:"POST"});if(r.facecam){ZN.z2=r.facecam;znDraw();m.textContent="Cámara detectada: ajústala si hace falta y pulsa «Guardar zonas»."}else m.textContent="No se detectó: dibújala a mano."}catch(e){m.className="err";m.textContent=e.message}};
+$("zn_zoom").oninput=()=>$("zn_zv").textContent=($("zn_zoom").value/100).toFixed(2)+"×";
+$("zn_ai").onclick=async()=>{const m=$("zn_msg");m.className="mut";m.textContent="Analizando la imagen con tu modelo de visión…";
+ try{const r=await api("/api/live/facecam/ai",{method:"POST"});if(r.facecam){ZN.z2=r.facecam;znDraw();m.textContent=`IA (${r.model}): cámara ubicada y ${r.faces.length} rostro(s). Ajusta si hace falta y pulsa «Guardar zonas».`}else m.textContent=`IA (${r.model}): no vio una cámara superpuesta (${r.faces.length} rostro(s) en pantalla). Dibújala a mano.`}catch(e){m.className="err";m.textContent=e.message}};
 $("zn_clr1").onclick=async()=>{ZN.z1=null;try{await api("/api/settings",PUT({layout:{gameplay_zone:null}}));$("zn_msg").textContent="Zona 1 quitada: se usa el centro del juego.";znInit();znDraw();pvRefresh(true)}catch(e){$("zn_msg").textContent=e.message}};
 $("zn_auto").onclick=async()=>{ZN.z2=null;try{await api("/api/settings",PUT({layout:{facecam:null}}));$("zn_msg").textContent="La cámara se buscará sola en cada clip.";znInit();znDraw();pvRefresh(true)}catch(e){$("zn_msg").textContent=e.message}};
 

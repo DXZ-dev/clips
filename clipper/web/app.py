@@ -412,9 +412,7 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
         engine.resume()
         return {"paused": False}
 
-    @app.get("/api/live/frame")
-    def live_frame(w: int = 960):
-        """Imagen (JPEG) del directo ahora mismo: sirve para marcar la cámara del streamer."""
+    def _live_jpeg(w: int) -> bytes:
         import subprocess
         from ..ffutil import require
         segs = engine.reader.segments()
@@ -426,7 +424,25 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
                            capture_output=True)
         if not r.stdout:
             raise HTTPException(409, "No se pudo extraer una imagen del directo.")
-        return Response(r.stdout, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+        return r.stdout
+
+    @app.get("/api/live/frame")
+    def live_frame(w: int = 960):
+        """Imagen (JPEG) del directo ahora mismo."""
+        return Response(_live_jpeg(w), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/autoconfig")
+    def autoconfig():
+        """Deja todo configurado para clips 9:16 profesionales (cámara, diseño, subtítulos, detectores, modelo de voz, modo automático)."""
+        from .. import autoconfig as ac
+        return ac.run(engine, lambda: _live_jpeg(960))
+
+    @app.post("/api/live/facecam/ai")
+    def live_facecam_ai():
+        """Ubica la cámara del streamer y los rostros con el modelo de visión de tu API (Gemini, Claude, GPT-4o…)."""
+        img = _live_jpeg(960)
+        res = _ai(ai.locate_faces, engine.cfg.ai.llm, img)
+        return {**res, "model": _ai(ai.resolve_model, engine.cfg.ai.llm)}
 
     @app.post("/api/live/facecam/detect")
     def live_facecam_detect():

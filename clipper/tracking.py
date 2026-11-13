@@ -293,6 +293,66 @@ def smooth_targets(targets: list[float | None], fps: float, crop_frac: float, cf
     return out
 
 
+def pl_expr(xs: list[float], fps: float) -> str:
+    """Expresión ffmpeg (función de t) lineal a tramos que pasa por los valores `xs` (una muestra cada 1/fps s)."""
+    dt = 1 / fps
+    terms = [f"{xs[0]:.2f}"]
+    for i in range(len(xs) - 1):
+        slope = (xs[i + 1] - xs[i]) / dt
+        if abs(slope) < 1e-3:
+            continue
+        terms.append(f"({slope:.3f})*clip(t-{i * dt:.4f},0,{dt:.4f})")
+    return "+".join(terms)
+
+
+@dataclass
+class FacePath:
+    """Posición del rostro (0..1, relativa a la cámara) por muestra, ya suavizada."""
+    fps: float
+    fx: list[float]
+    fy: list[float]
+
+
+def track_face_in(input_args: list[str], info: VideoInfo, cfg: Config, rect: RectCfg, fps: int = 6) -> FacePath | None:
+    """Seguimiento REAL del rostro dentro de la cámara: detecta la cara en cada muestra y suaviza el recorrido (EMA, zona muerta y
+    espera si la pierde un instante). None si nunca se ve un rostro."""
+    px = (int(rect.x * info.width), int(rect.y * info.height), max(2, int(rect.w * info.width) // 2 * 2), max(2, int(rect.h * info.height) // 2 * 2))
+    aw = 320
+    ah = max(2, int(round(aw * px[3] / px[2])) // 2 * 2)
+    det = make_detector(cfg)
+    raw: list[tuple[float, float] | None] = []
+    try:
+        for bgr in read_frames(input_args, fps, aw, ah, pre=f"crop={px[2]}:{px[3]}:{px[0]}:{px[1]},"):
+            f = det.detect(bgr)
+            if f:
+                b = max(f, key=lambda b: b.w)
+                raw.append(((b.x + b.w / 2) / aw, (b.y + b.h / 2) / ah))
+            else:
+                raw.append(None)
+    finally:
+        if hasattr(det, "close"):
+            det.close()
+    first = next((r for r in raw if r is not None), None)
+    if first is None:
+        return None
+    alpha, dead, hold = 0.3, 0.015, int(1.5 * fps)
+    cx, cy = first
+    fx, fy, lost, last = [], [], 0, first
+    for r in raw:
+        if r is None:
+            lost += 1
+            goal = last if lost <= hold else (0.5, 0.45)                 # tras 1,5 s sin verse, vuelve al centro
+        else:
+            lost, last, goal = 0, r, r
+        if abs(goal[0] - cx) > dead:
+            cx += alpha * (goal[0] - cx)
+        if abs(goal[1] - cy) > dead:
+            cy += alpha * (goal[1] - cy)
+        fx.append(cx)
+        fy.append(cy)
+    return FacePath(fps, fx, fy)
+
+
 @dataclass
 class CropPath:
     fps: float
@@ -308,15 +368,7 @@ class CropPath:
     def x_expr(self) -> str:
         """Expresión ffmpeg (función de t) lineal a tramos para el borde izquierdo del recorte, en px."""
         g = self.geom
-        xs = [min(max(c * g.src_w - g.crop_w / 2, 0), g.src_w - g.crop_w) for c in self.cx]
-        dt = 1 / self.fps
-        terms = [f"{xs[0]:.2f}"]
-        for i in range(len(xs) - 1):
-            slope = (xs[i + 1] - xs[i]) / dt
-            if abs(slope) < 1e-3:
-                continue
-            terms.append(f"({slope:.3f})*clip(t-{i * dt:.4f},0,{dt:.4f})")
-        return "+".join(terms)
+        return pl_expr([min(max(c * g.src_w - g.crop_w / 2, 0), g.src_w - g.crop_w) for c in self.cx], self.fps)
 
 
 def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | None = None, out_h: int | None = None,

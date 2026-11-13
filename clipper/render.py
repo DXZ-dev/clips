@@ -10,7 +10,7 @@ from .config import Config, RectCfg
 from .ffutil import VideoInfo, pick_encoder, probe, require
 from .spec import EditSpec
 from .subtitles import Word, build_ass, with_preset
-from .tracking import analyze, crop_geometry, detect_facecam, face_center_in
+from .tracking import analyze, crop_geometry, detect_facecam, face_center_in, pl_expr, track_face_in
 
 log = logging.getLogger("clipper.render")
 
@@ -39,8 +39,8 @@ def _contain(src: str, dst: str, w: int, h: int, blur: int) -> str:
             f"[bgo][fgo]overlay=(W-w)/2:(H-h)/2{dst}")
 
 
-def _cam_crop(info: VideoInfo, rect: RectCfg, face: tuple[float, float] | None, w: int, h: int) -> tuple[int, int, int, int]:
-    """Ventana (px, py, pw, ph) dentro de la cámara con proporción w:h, centrada en el rostro si se conoce."""
+def _cam_crop(info: VideoInfo, rect: RectCfg, face: tuple[float, float] | None, w: int, h: int, zoom: float = 1.0) -> tuple[int, int, int, int]:
+    """Ventana (px, py, pw, ph) dentro de la cámara con proporción w:h, centrada en el rostro si se conoce. `zoom` > 1 la reduce."""
     rx, ry = int(rect.x * info.width), int(rect.y * info.height)
     rw, rh = max(2, _even(rect.w * info.width)), max(2, _even(rect.h * info.height))
     target = w / h
@@ -48,6 +48,7 @@ def _cam_crop(info: VideoInfo, rect: RectCfg, face: tuple[float, float] | None, 
         pw, ph = _even(rh * target), rh
     else:                                        # más alta: recorta alto
         pw, ph = rw, _even(rw / target)
+    pw, ph = max(2, _even(pw / zoom)), max(2, _even(ph / zoom))
     fx, fy = face if face else (0.5, 0.5)
     px = rx + min(max(fx * rw - pw / 2, 0), rw - pw)
     py = ry + min(max(fy * rh - ph * 0.45, 0), rh - ph)   # el rostro algo por encima del centro
@@ -109,11 +110,28 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
     if note["layout"] == "split":
         cam_h = _even(H * spec.facecam_height_pct / 100)
         game_h = H - cam_h
-        if "face" not in cache:
-            cache["face"] = face_center_in(input_args, info, cfg, rect)
-        face = cache["face"]
-        px, py, pw, ph = _cam_crop(info, rect, face, W, cam_h)
-        cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={W}:{cam_h}:flags=lanczos[cam]"
+        zoom = spec.cam_zoom if spec.cam_follow else 1.0
+        if spec.cam_follow and "facepath" not in cache:
+            cache["facepath"] = track_face_in(input_args, info, cfg, rect)         # seguimiento real, fotograma a fotograma
+        fp = cache.get("facepath")
+        if fp is not None:
+            _, _, pw, ph = _cam_crop(info, rect, (0.5, 0.5), W, cam_h, zoom)
+            rx, ry = int(rect.x * info.width), int(rect.y * info.height)
+            rw, rh = max(2, _even(rect.w * info.width)), max(2, _even(rect.h * info.height))
+            xs = [rx + min(max(f * rw - pw / 2, 0), rw - pw) for f in fp.fx]
+            ys = [ry + min(max(f * rh - ph * 0.45, 0), rh - ph) for f in fp.fy]
+            if static:                                                              # respaldo sin expresiones: posición mediana
+                xe, ye = f"{sorted(xs)[len(xs) // 2]:.2f}", f"{sorted(ys)[len(ys) // 2]:.2f}"
+            else:
+                xe, ye = pl_expr(xs, fp.fps), pl_expr(ys, fp.fps)
+            cam = f"[s1]crop={pw}:{ph}:x='{xe}':y='{ye}',scale={W}:{cam_h}:flags=lanczos[cam]"
+            face = (0.5, 0.5)
+        else:
+            if "face" not in cache:
+                cache["face"] = face_center_in(input_args, info, cfg, rect)
+            face = cache["face"]
+            px, py, pw, ph = _cam_crop(info, rect, face, W, cam_h, zoom)
+            cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={W}:{cam_h}:flags=lanczos[cam]"
         if spec.gameplay == "center":
             cw, ch, gx, gy = _center_crop(info, rect, W, game_h, spec.gameplay_x, spec.gameplay_zone)
             game = f"[s2]crop={cw}:{ch}:{gx}:{gy},scale={W}:{game_h}:flags=lanczos[game]"

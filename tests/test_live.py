@@ -289,3 +289,128 @@ def test_list_clips_exposes_title_and_channel_and_title_feeds_publication(tmp_pa
     row = Engine(cfg, data_dir=tmp_path).list_clips()[0]
     assert (row["title"], row["platform"], row["channel"], row["score"]) == ("Mi título automático", "kick", "epidemic77", 4.2)
     assert metadata.render(cfg.publish, meta)[0] == "Mi título automático"          # el título del clip pasa a la publicación
+
+
+# ------------------------------------------------------------------ configuración automática
+def _eng(tmp_path, with_segments=True, models=("small",)):
+    cfg = Config()
+    cfg.buffer.dir, cfg.clip.output_dir, cfg.transcribe.enabled = str(tmp_path / "buf"), str(tmp_path / "out"), False
+    cfg.compute.device = "cpu"
+    import clipper.config as CC
+    (tmp_path / "models").mkdir(exist_ok=True)
+    for m in models:
+        (tmp_path / "models" / f"whisper-{m}").mkdir(exist_ok=True)
+    CC.STATE = tmp_path
+    if with_segments:
+        make_segments(tmp_path / "buf", 20)
+    return Engine(cfg, data_dir=tmp_path), cfg
+
+
+def test_autoconfig_with_camera_found(tmp_path, monkeypatch):
+    from clipper import autoconfig
+    eng, cfg = _eng(tmp_path)
+    cam = {"x": 0.0, "y": 0.0, "w": 0.285, "h": 0.37}
+    monkeypatch.setattr(autoconfig, "_detect_cam_local", lambda e: type("R", (), {"model_dump": lambda s: cam})())
+    cfg.publish.tiktok.enabled = True
+    res = autoconfig.run(eng, lambda: b"")
+    assert all(s["status"] != "warn" or s["name"] == "Transcripción" for s in res["steps"])
+    assert cfg.layout.mode == "split" and cfg.layout.facecam.w == 0.285 and cfg.layout.cam_follow and cfg.layout.gameplay == "center"
+    assert cfg.subtitles.position == "seam" and cfg.subtitles.highlight_color == "#00E676" and cfg.subtitles.reviewed is True
+    assert cfg.triggers.auto_enabled and cfg.triggers.min_score == 2.5 and cfg.triggers.visual.enabled
+    assert cfg.publish.tiktok.mode == "review"                                   # nunca publica solo sin que lo decidas
+    assert cfg.transcribe.enabled and cfg.transcribe.model == "small"             # el que hay disponible (CPU de pocos núcleos pediría base: sube a lo que exista ≤ deseado)
+
+
+def test_autoconfig_without_camera_uses_auto_layout_and_ai_when_available(tmp_path, monkeypatch):
+    from clipper import ai, autoconfig
+    eng, cfg = _eng(tmp_path, models=("base", "small"))
+    monkeypatch.setattr(autoconfig, "_detect_cam_local", lambda e: None)
+    res = autoconfig.run(eng, lambda: b"")
+    assert cfg.layout.mode == "auto" and cfg.layout.facecam is None and cfg.subtitles.position == "lower_third"
+    # con la IA de visión configurada, es la que ubica la cámara
+    cfg.ai.llm.enabled = True
+    monkeypatch.setattr(ai, "locate_faces", lambda llm, jpeg, http=None: {"facecam": {"x": 0.7, "y": 0.6, "w": 0.28, "h": 0.37}, "faces": []})
+    res = autoconfig.run(eng, lambda: b"jpeg")
+    assert cfg.layout.mode == "split" and cfg.layout.facecam.x == 0.7 and any("IA de tu API" in s["detail"] for s in res["steps"])
+
+
+def test_autoconfig_without_signal_keeps_layout_and_endpoint(tmp_path):
+    from clipper import autoconfig
+    eng, cfg = _eng(tmp_path, with_segments=False, models=())
+    cfg.layout.mode = "fit"
+    c = TestClient(create_app(eng, manage_engine=False), base_url="http://localhost")
+    r = c.post("/api/autoconfig").json()
+    names = {s["name"]: s for s in r["steps"]}
+    assert names["Señal del directo"]["status"] == "warn" and names["Cámara y diseño"]["status"] == "skip"
+    assert names["Transcripción"]["status"] == "warn" and "download-model" in names["Transcripción"]["detail"]
+    assert cfg.layout.mode == "fit" and cfg.subtitles.reviewed is True and cfg.triggers.auto_enabled
+
+
+# ------------------------------------------------------------------ IA de visión: ubicar cámara y rostros
+def test_vision_locate_faces_for_each_provider(monkeypatch):
+    import base64
+    import json as _json
+    import httpx
+    from clipper import ai
+    from clipper.config import LlmCfg
+    reply = _json.dumps({"facecam": {"box": [0, 0, 285, 370]}, "faces": [{"box": [60, 40, 230, 300]}, {"box": [0.6, 0.5, 0.7, 0.7]}]})
+    jpeg = b"\xff\xd8fakejpeg"
+    seen = {}
+
+    def gem(req):
+        b = _json.loads(req.content)
+        seen["g"] = b["contents"][0]["parts"][0]["inlineData"]
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": reply}]}}]})
+
+    def ant(req):
+        b = _json.loads(req.content)
+        seen["a"] = b["messages"][0]["content"][0]
+        return httpx.Response(200, json={"content": [{"type": "text", "text": reply}]})
+
+    def oai(req):
+        b = _json.loads(req.content)
+        seen["o"] = b["messages"][1]["content"][1]
+        return httpx.Response(200, json={"choices": [{"message": {"content": reply}}]})
+
+    for prov, h, key in (("gemini", gem, "g"), ("anthropic", ant, "a"), ("openai", oai, "o")):
+        llm = LlmCfg(enabled=True, provider=prov, model="m", api_key="K", base_url="https://x.example/v1")
+        out = ai.locate_faces(llm, jpeg, http=httpx.Client(transport=httpx.MockTransport(h)))
+        assert out["facecam"] == {"x": 0.0, "y": 0.0, "w": 0.285, "h": 0.37}                  # 0..1000 -> 0..1
+        assert out["faces"][0] == {"x": 0.06, "y": 0.04, "w": 0.17, "h": 0.26} and out["faces"][1]["x"] == 0.6   # admite 0..1 y 0..1000
+    assert base64.b64decode(seen["g"]["data"]) == jpeg and seen["a"]["source"]["media_type"] == "image/jpeg"
+    assert seen["o"]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    # sin cámara / cajas inválidas
+    none = _json.dumps({"facecam": None, "faces": [{"box": [0.1, 0.1, 0.11, 0.11]}]})
+    llm = LlmCfg(enabled=True, provider="openai", model="m", base_url="https://x.example/v1")
+    assert ai.locate_faces(llm, jpeg, http=httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": none}}]})))) == {"facecam": None, "faces": []}
+
+
+# ------------------------------------------------------------------ seguimiento real del rostro
+def test_pl_expr_matches_samples():
+    from clipper.tracking import pl_expr
+    assert pl_expr([10.0, 10.0, 10.0], 6) == "10.00"                                  # quieto: constante
+    e = pl_expr([0.0, 6.0, 6.0], 6)
+    assert e.startswith("0.00+(36.000)*clip(t-0.0000,0,0.1667)") and e.count("clip(") == 1
+
+
+def test_face_tracking_follows_a_moving_face(tmp_path):
+    pytest.importorskip("skimage")
+    import subprocess as sp
+    import cv2
+    from skimage import data
+    from clipper.config import load_config
+    from clipper.config import RectCfg
+    from clipper.tracking import track_face_in
+    cfg = load_config()
+    if not cfg.path(cfg.reframe.mediapipe_model).exists():
+        pytest.skip("falta el modelo de MediaPipe")
+    cv2.imwrite(str(tmp_path / "f.png"), data.astronaut()[:, :, ::-1])
+    vid = tmp_path / "m.mp4"
+    # una cámara de 640x360 donde el rostro se desplaza de izquierda a derecha
+    sp.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=1280x720:r=25:d=8", "-loop", "1", "-framerate", "25", "-i", str(tmp_path / "f.png"),
+            "-filter_complex", "[1]crop=330:330:85:0,scale=240:240[f];[0][f]overlay=x='60+t*60':y=60", "-t", "8", "-c:v", "libx264", "-preset", "ultrafast", str(vid)], check=True)
+    fp = track_face_in(["-i", str(vid)], probe(str(vid)), cfg, RectCfg(x=0.0, y=0.0, w=0.5, h=0.5))
+    assert fp is not None and len(fp.fx) >= 40
+    assert fp.fx[-1] - fp.fx[0] > 0.2                                                       # sigue el desplazamiento
+    assert max(abs(b - a) for a, b in zip(fp.fx, fp.fx[1:])) < 0.08                         # sin saltos (suavizado)
