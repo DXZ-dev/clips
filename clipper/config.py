@@ -295,7 +295,8 @@ class VodCfg(BaseModel):
 class ServerCfg(BaseModel):
     host: str = "127.0.0.1"
     port: int = 7848
-    allowed_hosts: list[str] = []        # nombres extra aceptados en la cabecera Host (anti DNS-rebinding)
+    allowed_hosts: list[str] = []        # nombres extra aceptados en la cabecera Host (solo sin contraseña)
+    password_hash: str = Field("", exclude=True, repr=False)   # hash scrypt; se pone con «clipper set-password» o desde Ajustes → Seguridad
 
 
 class Config(BaseModel):
@@ -335,6 +336,7 @@ TOKENS_FILE = STATE / "tokens.local.json"       # tokens OAuth obtenidos al cone
 SECRET_PATHS = [
     "transcribe.api.api_key",
     "ai.llm.api_key",
+    "server.password_hash",
     "publish.youtube.client_secret",
     "publish.tiktok.client_secret",
     "publish.instagram.access_token",
@@ -402,6 +404,9 @@ def load_config(path: str | Path | None = None) -> Config:
     for sp in SECRET_PATHS:
         if secrets.get(sp):
             set_path(cfg, sp, secrets[sp])
+    if os.environ.get("CLIPPER_PASSWORD") and not cfg.server.password_hash:   # útil en despliegues sin interacción
+        from .auth import hash_password
+        cfg.server.password_hash = hash_password(os.environ["CLIPPER_PASSWORD"])
     if os.environ.get("CLIPPER_API_KEY"):
         cfg.transcribe.api.api_key = os.environ["CLIPPER_API_KEY"]
     return cfg

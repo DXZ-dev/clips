@@ -2,29 +2,32 @@
 
 Herramienta personal (Debian/Ubuntu). Panel por secciones: **Directo · Vídeos · Clips · Publicación · Ajustes** (todo se configura desde el navegador, incluidas las claves de IA/APIs).
 
-## Instalación automática (Linux)
-El instalador clona el repositorio, instala las dependencias del sistema (ffmpeg, Python venv, fuentes, libs gráficas), crea el entorno virtual,
-instala los paquetes de Python (torch en versión CPU, ~200 MB), descarga los modelos, crea el comando `clipper` y **verifica** todo con una
-prueba de render real. Es idempotente: volver a ejecutarlo actualiza el código y las dependencias.
+## Instalación en un servidor Linux (recomendado)
+clipper corre en un servidor Linux (un LXC/VM de Proxmox, un mini PC, una Raspberry de 64 bits…) y lo usas **desde el navegador de cualquier PC de tu red**.
+No hace falta Docker, Windows ni ningún token: el repositorio es público.
 
-**Un solo comando** (repositorio público; pide `sudo` solo para instalar paquetes del sistema):
+**Un solo comando, como root o con sudo, en una máquina Debian 12/13 o Ubuntu 22.04/24.04:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/HEAD/install.sh | bash -s -- --server
 ```
-Sin preguntas y con arranque automático del panel como servicio:
-```bash
-curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash -s -- --yes --service
-```
-(Hoy el repo solo tiene esa rama; cuando exista `main`, sustitúyela en la URL. El instalador clona la rama por defecto salvo que uses `--branch`.)
-Alternativa: `git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh`. Si el repo vuelve a ser privado, exporta `GITHUB_TOKEN` (lectura de *Contents*).
+Te pide una contraseña para el panel (mín. 8 caracteres) y hace todo lo demás: dependencias del sistema, entorno de Python, modelos, servicio systemd que arranca solo
+con el servidor, y una prueba de render real al final. Al terminar te dice la dirección, p. ej. **`http://192.168.1.50:7848`**: ábrela en el navegador de tu PC e inicia sesión.
 
-Opciones útiles (`./install.sh --help`): `--service` (servicio systemd de usuario que arranca el panel), `--port N`, `--whisper tiny|base|small|medium|large-v3`,
-`--gpu`/`--cpu` (librerías CUDA para Whisper; se autodetecta NVIDIA), `--no-models`, `--dry-run` (muestra qué haría), `--uninstall [--purge]`
-(`--purge` borra además modelos, ajustes, secretos, tokens y cola; nunca borra tus clips).
-Probado en Ubuntu 24.04 con Python 3.11 (también 3.12 en desarrollo). Debian/Ubuntu: completo. Fedora y Arch: instalan lo básico pero **sin probar** (en Fedora, ffmpeg con libx264 requiere RPM Fusion).
-Tras instalar: `clipper serve` → **http://localhost:7848** (puerto configurable con `--port` o `server.port`).
+- Sin `--server` queda solo para ese equipo (`http://localhost:7848`, sin contraseña). Puerto: `--port N` (por defecto **7848**).
+- Para no teclear la contraseña (automatizado): `CLIPPER_PASSWORD='mi-clave-larga' curl … | bash -s -- --server --yes`.
+- Actualizar: vuelve a ejecutar el mismo comando (conserva ajustes, claves, clips y contraseña). Desinstalar: `bash ~/.local/share/clipper/install.sh --uninstall [--purge]`.
+- Otras opciones (`--help`): `--whisper tiny|base|small|medium|large-v3`, `--gpu`/`--cpu`, `--no-models`, `--dry-run`, `--dir`, `--branch`.
+- **Seguridad:** el panel **se niega a abrirse a la red sin contraseña**. Con contraseña usa sesión por cookie firmada, bloqueo tras 5 intentos fallidos y protección CSRF. Va por HTTP:
+  úsalo solo en tu red local, o ponle delante un proxy HTTPS (Caddy/Nginx/Cloudflare Tunnel) si lo expones fuera. Cambiar la contraseña: Ajustes → Seguridad, o `clipper set-password`.
 
-## Windows y Docker
+**Crear el servidor en Proxmox (LXC):** *Create CT* → plantilla Debian 13 o Ubuntu 24.04, 4 núcleos, 8 GB de RAM, 40+ GB de disco (los clips y fuentes ocupan espacio), red con IP fija → arráncalo, entra por consola y pega el comando de arriba.
+No instales clipper directamente en el host de Proxmox. Un LXC no ve tu GPU de forma sencilla: en CPU, Whisper `small` va aproximadamente a tiempo real; si quieres más velocidad sin GPU,
+usa una API de transcripción (Ajustes → Transcripción → API, p. ej. un servicio compatible con OpenAI) o un modelo más pequeño (`base`).
+
+Desde un clon local también vale: `git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh --server`.
+Probado: Ubuntu 24.04 (Python 3.11, 3.12 y 3.13). Debian 13 y el servicio systemd, sin probar en una máquina real. Fedora y Arch: sin probar.
+
+## Alternativa: Windows y Docker (opcional)
 **Recomendado en Windows: Docker Desktop (WSL2).** Ejecuta exactamente el mismo código Linux que está probado y usa tu GPU NVIDIA para Whisper.
 No hay `.exe` nativo: no puedo probar Windows desde el entorno de desarrollo y prefiero no prometer lo que no he podido comprobar.
 
@@ -68,7 +71,7 @@ Python 3.13 funciona para el núcleo, pero torch/mediapipe/faster-whisper suelen
 
 ## Arranque rápido
 ```bash
-python -m clipper serve                  # motor + panel en http://localhost:7848
+clipper serve                            # motor + panel en http://localhost:7848 (con --host 0.0.0.0 exige contraseña)
 python -m clipper serve --device cpu     # solo CPU   (también: --device cuda | auto)
 python -m clipper run                    # sin web: Enter/c = clip, 15|30|60 = clip de N s, q = salir
 curl -X POST localhost:7848/clip -H 'content-type: application/json' -d '{"seconds":30}'   # trigger manual HTTP

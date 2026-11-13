@@ -279,6 +279,7 @@ class Engine:
             "events": list(self.events)[:30],
             "videos_active": sum(1 for j in self.videos.jobs.values() if j.status not in ("done", "error", "cancelled")),
             "auto_enabled": self.cfg.triggers.auto_enabled,
+            "auth": bool(self.cfg.server.password_hash),
             "publish": {"enabled": self.cfg.publish.enabled, "dry_run": self.cfg.publish.dry_run,
                         "pending_review": sum(1 for i in self.publisher.list() if i["status"] == "pending_review")},
             "durations": self.cfg.clip.duration_options, "default_seconds": self.cfg.clip.default_seconds,

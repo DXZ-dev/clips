@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from pydantic import BaseModel
 
 from .. import ai
+from .. import auth
 from .. import editor as ed
 from ..engine import Engine
 from ..spec import EditSpec
@@ -63,6 +64,15 @@ class ImportRequest(BaseModel):
     description: str = ""
 
 
+class LoginRequest(BaseModel):
+    password: str
+
+
+class PasswordRequest(BaseModel):
+    current: str = ""
+    new: str
+
+
 class DeviceRequest(BaseModel):
     device: str
 
@@ -79,22 +89,84 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
     app = FastAPI(title="clipper", lifespan=lifespan)
     loopback = {"localhost", "127.0.0.1", "::1"}
 
+    throttle = auth.Throttle()
+    PUBLIC = ("/login", "/api/auth/login")
+
+    def _pw_hash() -> str:
+        return engine.cfg.server.password_hash
+
     @app.middleware("http")
     async def guard(request: Request, call_next):
         """Anti DNS-rebinding / CSRF: el panel puede cambiar ajustes, así que solo acepta peticiones
         cuyo Host sea local (o esté en server.allowed_hosts) y, si traen Origin, que sea el mismo Host."""
         host_h = request.headers.get("host", "")
         host = urlparse("//" + host_h).hostname or ""
-        if host not in loopback | set(engine.cfg.server.allowed_hosts):
+        pw = _pw_hash()
+        # Con contraseña activa se acepta cualquier Host (la cookie solo viaja al nombre real, así que un ataque de
+        # DNS-rebinding llegaría sin sesión). Sin contraseña, solo local o server.allowed_hosts.
+        if not pw and host not in loopback | set(engine.cfg.server.allowed_hosts):
             return JSONResponse({"detail": "host no permitido"}, status_code=403)
         origin = request.headers.get("origin")
         if request.method not in ("GET", "HEAD") and origin and urlparse(origin).netloc != host_h:
             return JSONResponse({"detail": "origen no permitido"}, status_code=403)
+        if pw and request.url.path not in PUBLIC and not auth.valid_token(request.cookies.get(auth.COOKIE), pw):
+            if request.url.path.startswith(("/api/", "/clip", "/clips/", "/static/")):
+                return JSONResponse({"detail": "No has iniciado sesión"}, status_code=401)
+            return RedirectResponse("/login")
         return await call_next(request)
 
     clips_dir = lambda: engine.cfg.path(engine.cfg.clip.output_dir)  # noqa: E731
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+    # ------------------------------------------------------------------ acceso con contraseña
+    @app.get("/login")
+    def login_page():
+        if not _pw_hash():
+            return RedirectResponse("/")
+        return HTMLResponse(auth.LOGIN_HTML)
+
+    def _client_ip(request: Request) -> str:
+        return request.client.host if request.client else "?"
+
+    @app.post("/api/auth/login")
+    def login(req: LoginRequest, request: Request):
+        pw, ip = _pw_hash(), _client_ip(request)
+        if not pw:
+            raise HTTPException(409, "El panel no tiene contraseña configurada.")
+        if throttle.blocked(ip):
+            raise HTTPException(429, "Demasiados intentos. Espera unos minutos.")
+        if not auth.verify_password(req.password, pw):
+            throttle.fail(ip)
+            raise HTTPException(401, "Contraseña incorrecta.")
+        throttle.ok(ip)
+        r = JSONResponse({"ok": True})
+        secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+        r.set_cookie(auth.COOKIE, auth.make_token(pw), max_age=auth.SESSION_DAYS * 86400, httponly=True, samesite="lax", secure=secure)
+        return r
+
+    @app.post("/api/auth/logout")
+    def logout():
+        r = JSONResponse({"ok": True})
+        r.delete_cookie(auth.COOKIE)
+        return r
+
+    @app.post("/api/auth/password")
+    def change_password(req: PasswordRequest, request: Request):
+        """Pone o cambia la contraseña. Si ya hay una, exige la actual. Sin contraseña previa solo se permite desde esta misma máquina."""
+        pw = _pw_hash()
+        if pw:
+            if not auth.verify_password(req.current, pw):
+                raise HTTPException(401, "La contraseña actual no es correcta.")
+        elif _client_ip(request) not in ("127.0.0.1", "::1"):
+            raise HTTPException(403, "La primera contraseña se pone desde el propio servidor (clipper set-password).")
+        if len(req.new) < auth.MIN_LEN:
+            raise HTTPException(422, f"La contraseña debe tener al menos {auth.MIN_LEN} caracteres.")
+        from ..settings import apply_update
+        apply_update(engine.cfg, {"server": {"password_hash": auth.hash_password(req.new)}})
+        r = JSONResponse({"ok": True})
+        r.set_cookie(auth.COOKIE, auth.make_token(_pw_hash()), max_age=auth.SESSION_DAYS * 86400, httponly=True, samesite="lax")
+        return r
 
     @app.get("/")
     def index():

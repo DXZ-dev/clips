@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # clipper — instalador para Linux (Debian/Ubuntu probado; Fedora y Arch en "mejor esfuerzo").
 #
-#   Desde GitHub (repositorio público; clona, instala y verifica todo):
-#     curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash
-#   Sin preguntas:  ... | bash -s -- --yes        Con servicio systemd:  ... | bash -s -- --yes --service
+#   Un solo comando (repositorio público, sin token). Servidor Linux con panel en la red + contraseña:
+#     curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/HEAD/install.sh | bash -s -- --server
+#   Solo para este equipo (panel en http://localhost:7848):
+#     curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/HEAD/install.sh | bash
 #   Desde un clon local:
-#     git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh
+#     git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh --server
 #
-#   (Solo si algún día el repo vuelve a ser privado: exporta GITHUB_TOKEN con permiso de lectura.)
 #   Es idempotente: volver a ejecutarlo actualiza el código y las dependencias.
 set -Eeuo pipefail
 
@@ -20,7 +20,7 @@ WHISPER="small"
 PORT=""
 PYTHON_OVERRIDE=""
 GPU="auto"            # auto | yes | no  (libs CUDA para Whisper en GPU NVIDIA)
-YES=0; DRY=0; NO_MODELS=0; NO_WHISPER=0; SERVICE=0; UNINSTALL=0; PURGE=0; NO_VERIFY=0
+YES=0; DRY=0; NO_MODELS=0; NO_WHISPER=0; SERVICE=0; UNINSTALL=0; PURGE=0; NO_VERIFY=0; LAN=0
 
 usage() {
   cat <<'EOF'
@@ -36,7 +36,10 @@ Uso: install.sh [opciones]
       --no-whisper       No descargar ningún modelo Whisper ahora
       --no-models        No descargar ningún modelo (ni Whisper ni el de rostros)
       --gpu | --cpu      Forzar / descartar las librerías CUDA para Whisper (def. auto-detectar NVIDIA)
-      --service          Instalar y arrancar un servicio systemd de usuario (clipper serve)
+      --server           Modo servidor: panel accesible desde tu red con contraseña + servicio que arranca solo
+                         (= --lan --service). La contraseña se pide al instalar (o CLIPPER_PASSWORD)
+      --lan              Abrir el panel a la red local (pide contraseña)
+      --service          Instalar y arrancar un servicio systemd (clipper serve)
       --bin-dir DIR      Dónde crear el comando «clipper»      (def. ~/.local/bin)
       --no-verify        Saltar la verificación final
       --dry-run          Mostrar lo que haría sin ejecutar nada
@@ -60,6 +63,8 @@ while [ $# -gt 0 ]; do
     --gpu) GPU=yes ;;
     --cpu) GPU=no ;;
     --service) SERVICE=1 ;;
+    --lan) LAN=1 ;;
+    --server) LAN=1; SERVICE=1 ;;
     --bin-dir) BIN_DIR="${2:?}"; shift ;;
     --no-verify) NO_VERIFY=1 ;;
     --dry-run) DRY=1 ;;
@@ -321,6 +326,47 @@ EOF
   case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR no está en tu PATH. Añade a ~/.bashrc:  export PATH=\"$BIN_DIR:\$PATH\"" ;; esac
 }
 
+put_setting() {   # put_setting SECCION CLAVE VALOR  (VALOR en YAML: 0.0.0.0, 7848, true…)
+  [ "$DRY" = 1 ] && { echo "  [dry-run] $1.$2=$3 en settings.local.yaml"; return 0; }
+  "$VPY" - "$APP_DIR/settings.local.yaml" "$1" "$2" "$3" <<'PY'
+import os, sys, yaml
+path, sec, key, val = sys.argv[1:5]
+d = (yaml.safe_load(open(path)) if os.path.exists(path) else None) or {}
+d.setdefault(sec, {})[key] = yaml.safe_load(val)
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    yaml.safe_dump(d, f, allow_unicode=True, sort_keys=False)
+PY
+}
+
+setup_lan() {
+  [ "$LAN" = 1 ] || return 0
+  step "Acceso desde la red (con contraseña)"
+  put_setting server host 0.0.0.0
+  ok "El panel escuchará en toda la red local (puerto ${PORT:-7848})"
+  if [ "$DRY" = 1 ]; then echo "  [dry-run] clipper set-password"; return 0; fi
+  local pw="${CLIPPER_PASSWORD:-}"
+  if [ -z "$pw" ] && grep -q "server.password_hash" "$APP_DIR/secrets.local.yaml" 2>/dev/null; then
+    ok "Ya hay una contraseña configurada (se conserva; cámbiala con: clipper set-password)"; return 0
+  fi
+  if [ -z "$pw" ]; then
+    if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+      local p1="" p2=""
+      while :; do
+        printf '  Elige una contraseña para el panel (mín. 8 caracteres): ' >/dev/tty; read -rs p1 </dev/tty; printf '\n' >/dev/tty
+        printf '  Repítela: ' >/dev/tty; read -rs p2 </dev/tty; printf '\n' >/dev/tty
+        if [ "${#p1}" -lt 8 ]; then printf '  ! Demasiado corta.\n' >/dev/tty
+        elif [ "$p1" != "$p2" ]; then printf '  ! No coinciden.\n' >/dev/tty
+        else pw="$p1"; break; fi
+      done
+    else
+      die "Sin terminal para pedir la contraseña. Ejecuta con CLIPPER_PASSWORD='tu-contraseña' antes del comando."
+    fi
+  fi
+  printf '%s\n' "$pw" | "$LAUNCHER" set-password --stdin >>"$LOG" 2>&1 || die "No se pudo guardar la contraseña (¿mínimo 8 caracteres?)."
+  ok "Contraseña guardada"
+}
+
 set_port() {
   [ -n "$PORT" ] || return 0
   case "$PORT" in ''|*[!0-9]*) die "--port debe ser un número" ;; esac
@@ -356,9 +402,33 @@ download_models() {
 
 install_service() {
   [ "$SERVICE" = 1 ] || return 0
-  step "Servicio systemd de usuario"
+  step "Servicio systemd"
   need_cmd systemctl || { warn "systemd no disponible: servicio omitido."; return 0; }
   [ "$DRY" = 1 ] && { echo "  [dry-run] instalar clipper.service"; return 0; }
+  if [ "$(id -u)" -eq 0 ]; then
+    cat >/etc/systemd/system/clipper.service <<EOF
+[Unit]
+Description=clipper (clips verticales desde directos)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$APP_DIR
+ExecStart=$LAUNCHER serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    if systemctl daemon-reload >>"$LOG" 2>&1 && systemctl enable --now clipper.service >>"$LOG" 2>&1; then
+      ok "Servicio del sistema activo y con arranque automático: systemctl status clipper"
+    else
+      warn "No se pudo activar el servicio (ver $LOG). Archivo en /etc/systemd/system/clipper.service"
+    fi
+    return 0
+  fi
   local dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
   mkdir -p "$dir"
   cat >"$dir/clipper.service" <<EOF
@@ -378,7 +448,7 @@ WantedBy=default.target
 EOF
   if systemctl --user daemon-reload >>"$LOG" 2>&1 && systemctl --user enable --now clipper.service >>"$LOG" 2>&1; then
     ok "Servicio activo: systemctl --user status clipper"
-    warn "Para que arranque al iniciar el equipo sin abrir sesión: sudo loginctl enable-linger $USER"
+    warn "Para que arranque con el equipo sin abrir sesión: sudo loginctl enable-linger $USER"
   else
     warn "No se pudo activar el servicio (¿sin sesión systemd de usuario?). Archivo creado en $dir/clipper.service"
   fi
@@ -410,6 +480,10 @@ uninstall() {
   step "Desinstalando clipper de $APP_DIR"
   local l="$BIN_DIR/clipper"
   if [ -f "$l" ] && grep -q "APP=\"$APP_DIR\"" "$l" 2>/dev/null; then run rm -f "$l"; ok "Comando eliminado"; fi
+  if need_cmd systemctl && [ -f /etc/systemd/system/clipper.service ]; then
+    systemctl disable --now clipper.service >>"$LOG" 2>&1 || true
+    run rm -f /etc/systemd/system/clipper.service; ok "Servicio del sistema eliminado"
+  fi
   if need_cmd systemctl && [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/clipper.service" ]; then
     systemctl --user disable --now clipper.service >>"$LOG" 2>&1 || true
     run rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/clipper.service"; ok "Servicio eliminado"
@@ -425,11 +499,18 @@ uninstall() {
 
 summary() {
   local port; port="${PORT:-$("$VPY" -c 'from clipper.config import load_config; print(load_config().server.port)' 2>/dev/null || echo 7848)}"
+  local url="http://localhost:$port" ip
+  if [ "$LAN" = 1 ]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    url="http://${ip:-IP_DEL_SERVIDOR}:$port"
+  fi
+  local start="clipper serve"; [ "$SERVICE" = 1 ] && start="ya está en marcha (systemctl status clipper)"
   cat <<EOF
 
 ${G}${B}✔ clipper instalado${N}   (registro: $LOG)
 
-  Arrancar el panel :  clipper serve         → http://localhost:$port
+  Panel (abre esto en tu navegador) :  $url
+  Arrancar el panel :  $start
   Sin web (terminal):  clipper run
   Ajustes           :  panel → ⚙️ Ajustes   (o edita $APP_DIR/config.yaml)
   Actualizar        :  vuelve a ejecutar el instalador
@@ -480,6 +561,7 @@ if [ "$FROM_CLONE" = 0 ]; then
     [ "$NO_MODELS" = 1 ] && args+=(--no-models)
     [ "$NO_WHISPER" = 1 ] && args+=(--no-whisper)
     [ "$SERVICE" = 1 ] && args+=(--service)
+    [ "$LAN" = 1 ] && args+=(--lan)
     [ "$NO_VERIFY" = 1 ] && args+=(--no-verify)
     exec bash "$INSTALL_DIR/install.sh" "${args[@]}" </dev/null
   fi
@@ -498,6 +580,7 @@ make_venv
 install_python_deps
 write_launcher
 set_port
+setup_lan
 download_models
 install_service
 verify

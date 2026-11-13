@@ -50,7 +50,7 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
 #vfile{display:none!important}
 </style></head>
 <body><header class="top"><div class="brand">✂️ <b>clipper</b> <span class="mut" id="src"></span></div>
- <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes</a></nav></header>
+ <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes</a></nav><a id="logout" style="display:none;margin-left:auto;color:var(--mut);cursor:pointer">Salir</a></header>
 <main>
 <div class="view on" id="v_live">
 <div class="grid">
@@ -132,6 +132,14 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
     <div class="warn">⚠️ Con «API» el audio del directo se envía a esa URL. Usa un servidor tuyo si quieres que no salga de tu red. La clave se guarda solo en este equipo (secrets.local.yaml) y no se vuelve a mostrar.</div>
    </div>
   </fieldset>
+  <fieldset><legend>Seguridad</legend>
+   <div id="sec_state" style="margin-bottom:6px"></div>
+   <label id="sec_cur_l">Contraseña actual <input id="sec_cur" type="password" autocomplete="current-password"></label>
+   <label>Nueva contraseña (mín. 8 caracteres) <input id="sec_new" type="password" autocomplete="new-password"></label>
+   <label>Repite la nueva contraseña <input id="sec_new2" type="password" autocomplete="new-password"></label>
+   <div class="row"><button id="sec_go">Guardar contraseña</button><span id="sec_msg" class="mut"></span></div>
+   <div class="mut" style="font-size:12px;margin-top:6px">Para abrir el panel a tu red local instala con <code>--server</code> (o pon <code>server.host: 0.0.0.0</code> y reinicia): sin contraseña no se abre.</div>
+  </fieldset>
   <fieldset><legend>IA de texto (ganchos, títulos, descripciones)</legend>
    <label class="chk"><input type="checkbox" id="i_on"> Activada</label>
    <label>Proveedor <select id="i_prov"><option value="openai">Compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)</option><option value="anthropic">Anthropic (Claude)</option></select></label>
@@ -190,12 +198,12 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
 <script>
 const $=id=>document.getElementById(id);let secs=30,buildDur=false,lastClips="";
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-async function api(p,o){const r=await fetch(p,o);if(!r.ok){let d="";try{d=(await r.json()).detail}catch{}throw new Error(d||r.status)}return r.json()}
+async function api(p,o){const r=await fetch(p,o);if(r.status===401&&!p.startsWith("/api/auth/")){location.href="/login";throw new Error("Sesión caducada")}if(!r.ok){let d="";try{d=(await r.json()).detail}catch{}throw new Error(d||r.status)}return r.json()}
 function pickDur(s){secs=s;$("gosec").textContent=s;document.querySelectorAll("#durs button").forEach(b=>b.classList.toggle("sel",+b.dataset.s===s))}
 async function status(){
  let s;try{s=await api("/api/status")}catch{$("livetxt").textContent="sin conexión con el servidor";return}
  $("src").textContent="· fuente: "+s.source;
- if(document.activeElement!==$("auto_on"))$("auto_on").checked=!!s.auto_enabled;const pr=s.publish.pending_review;$("nb").textContent=pr;$("nb").classList.toggle("on",pr>0);
+ $("logout").style.display=s.auth?"inline":"none";if(document.activeElement!==$("auto_on"))$("auto_on").checked=!!s.auto_enabled;const pr=s.publish.pending_review;$("nb").textContent=pr;$("nb").classList.toggle("on",pr>0);
  if(!buildDur){buildDur=true;$("durs").innerHTML=s.durations.map(d=>`<button data-s="${d}">${d} s</button>`).join("");
   document.querySelectorAll("#durs button").forEach(b=>b.onclick=()=>pickDur(+b.dataset.s));pickDur(s.default_seconds)}
  const b=s.buffer;$("live").className="dot"+(b.live?" on":"");$("livetxt").textContent=b.live?"En directo":(b.error?"Error: "+b.error:"Esperando señal…");
@@ -235,7 +243,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- fillPub(c);V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -255,6 +263,11 @@ function aiPatch(){const l={enabled:$("i_on").checked,provider:$("i_prov").value
 async function testAi(target,msgId){const m=$(msgId);m.className="mut";m.textContent="Guardando…";
  try{await $("save").onclick();m.className="mut";m.textContent="Probando…";const r=await api("/api/ai/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target})});m.innerHTML='<span style="color:var(--ok)">✔ '+esc(r.reply)+"</span>"}
  catch(e){m.innerHTML='<span class="err">'+esc(e.message)+"</span>"}}
+$("sec_go").onclick=async()=>{const m=$("sec_msg");m.className="mut";
+ if($("sec_new").value!==$("sec_new2").value){m.className="err";m.textContent="No coinciden.";return}
+ try{await api("/api/auth/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current:$("sec_cur").value,new:$("sec_new").value})});
+  m.innerHTML='<span style="color:var(--ok)">✔ Contraseña guardada</span>';$("sec_cur").value=$("sec_new").value=$("sec_new2").value="";loadSettings()}catch(e){m.className="err";m.textContent=e.message}};
+$("logout").onclick=async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login"};
 $("i_test").onclick=()=>testAi("llm","i_msg");$("a_test").onclick=()=>testAi("transcribe","a_msg");
 $("settings").addEventListener("toggle",()=>{if($("settings").open)loadSettings()});
 
@@ -323,7 +336,7 @@ function upload(file){if(!file)return;$("vfn").textContent=file.name+" · "+(fil
  const q=vparams();q.set("filename",file.name);const x=new XMLHttpRequest();x.open("POST","/api/videos/upload?"+q);
  $("vup").style.display="block";$("vupb").style.width="0";
  x.upload.onprogress=e=>{if(e.lengthComputable){const p=e.loaded/e.total;$("vupb").style.width=p*100+"%";$("vupt").textContent="Subiendo… "+Math.round(p*100)+" %"}};
- x.onload=()=>{$("vup").style.display="none";if(x.status===200){$("vmsg").innerHTML='<span style="color:var(--ok)">✔ Subido. Lo estamos procesando (mira «Trabajos»).</span>';$("vfile").value="";vjobs()}else{let m=x.status;try{m=JSON.parse(x.responseText).detail}catch{}$("vmsg").innerHTML='<span class="err">'+esc(m)+"</span>"}};
+ x.onload=()=>{$("vup").style.display="none";if(x.status===401){location.href="/login";return}if(x.status===200){$("vmsg").innerHTML='<span style="color:var(--ok)">✔ Subido. Lo estamos procesando (mira «Trabajos»).</span>';$("vfile").value="";vjobs()}else{let m=x.status;try{m=JSON.parse(x.responseText).detail}catch{}$("vmsg").innerHTML='<span class="err">'+esc(m)+"</span>"}};
  x.onerror=()=>{$("vup").style.display="none";$("vmsg").innerHTML='<span class="err">Se interrumpió la subida.</span>'};x.send(file)}
 $("vfile").onchange=()=>upload($("vfile").files[0]);
 const dz=$("vdrop");["dragenter","dragover"].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add("over")}));

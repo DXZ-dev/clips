@@ -31,6 +31,8 @@ def main(argv=None) -> int:
     sv.add_argument("--host"); sv.add_argument("--port", type=int)
     dm = sub.add_parser("download-model", help="Descarga UNA VEZ un modelo Whisper a ./models (única operación con red)")
     dm.add_argument("name", nargs="?", default="small")
+    sp = sub.add_parser("set-password", help="Pone o cambia la contraseña del panel (necesaria para abrirlo a la red)")
+    sp.add_argument("--stdin", action="store_true", help="leer la contraseña de la entrada estándar (sin preguntar)")
     sub.add_parser("ensure-models", help="Descarga el modelo Whisper configurado si falta (lo usa el contenedor Docker)")
     tr = sub.add_parser("transcribe", help="Transcribe un archivo a JSON de palabras (para --words)")
     tr.add_argument("input"); tr.add_argument("-o", "--out")
@@ -92,11 +94,32 @@ def main(argv=None) -> int:
                "downloaded": f"Whisper '{cfg.transcribe.model}' descargado"}[r])
     elif a.cmd == "run":
         _run_terminal(cfg)
+    elif a.cmd == "set-password":
+        import getpass
+        from . import auth
+        from .settings import apply_update
+        if a.stdin:
+            pw = sys.stdin.readline().rstrip("\r\n")
+        else:
+            pw, again = getpass.getpass("Nueva contraseña: "), getpass.getpass("Repítela: ")
+            if pw != again:
+                print("No coinciden.")
+                return 1
+        if len(pw) < auth.MIN_LEN:
+            print(f"La contraseña debe tener al menos {auth.MIN_LEN} caracteres.")
+            return 1
+        apply_update(cfg, {"server": {"password_hash": auth.hash_password(pw)}})
+        print("Contraseña guardada. Reinicia clipper si ya estaba en marcha.")
     elif a.cmd == "serve":
         import uvicorn
+        host = a.host or cfg.server.host
+        if host not in ("127.0.0.1", "localhost", "::1") and not cfg.server.password_hash:
+            print(f"Por seguridad no se abre el panel a la red ({host}) sin contraseña.\n"
+                  "Ponla con:  clipper set-password   (o define la variable CLIPPER_PASSWORD) y vuelve a arrancar.")
+            return 2
         from .engine import Engine
         from .web.app import create_app
-        uvicorn.run(create_app(Engine(cfg)), host=a.host or cfg.server.host, port=a.port or cfg.server.port,
+        uvicorn.run(create_app(Engine(cfg)), host=host, port=a.port or cfg.server.port,
                     log_level="warning")
     elif a.cmd == "transcribe":
         from .audio import load_audio
