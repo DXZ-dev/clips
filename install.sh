@@ -519,69 +519,75 @@ EOF
 }
 
 # ----------------------------------------------------------------------------- flujo principal
-detect_os
+# Todo el flujo va dentro de main(): así bash lee el script ENTERO antes de ejecutar nada (importante con «curl | bash»,
+# si no, curl puede dar «Failure writing output» cuando el script salta a su segunda fase).
+main() {
+  detect_os
 
-# ¿Estamos dentro de un clon (ejecutado como archivo) o por «curl | bash»?
-SELF="${BASH_SOURCE[0]:-}"
-if [ -n "$SELF" ] && [ -f "$SELF" ] && [ -f "$(dirname "$SELF")/clipper/__init__.py" ]; then
-  APP_DIR="$(cd "$(dirname "$SELF")" && pwd)"
-  FROM_CLONE=1
-else
-  APP_DIR="$INSTALL_DIR"
-  FROM_CLONE=0
-fi
-
-if [ "$UNINSTALL" = 1 ]; then uninstall; exit 0; fi
-
-printf '%sclipper — instalador%s  (%s)\n' "$B" "$N" "$OS_NAME"
-printf '  Registro detallado: %s   (puedes seguirlo con: tail -f %s)\n' "$LOG" "$LOG"
-[ "$DRY" = 1 ] && warn "Modo simulación: no se cambia nada."
-
-if [ "$FROM_CLONE" = 0 ]; then
-  # Hace falta git (y curl) antes de poder clonar
-  if ! need_cmd git; then
-    step "Instalando git"
-    case "$PM" in
-      apt) as_root apt-get update; as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y git ca-certificates ;;
-      dnf) as_root dnf install -y git ;;
-      pacman) as_root pacman -S --needed --noconfirm git ;;
-      *) die "Instala git y vuelve a ejecutar." ;;
-    esac
+  # ¿Estamos dentro de un clon (ejecutado como archivo) o por «curl | bash»?
+  SELF="${BASH_SOURCE[0]:-}"
+  if [ -n "$SELF" ] && [ -f "$SELF" ] && [ -f "$(dirname "$SELF")/clipper/__init__.py" ]; then
+    APP_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+    FROM_CLONE=1
+  else
+    APP_DIR="$INSTALL_DIR"
+    FROM_CLONE=0
   fi
-  fetch_code
-  # Continúa con el instalador del repo descargado (misma versión que el código)
-  if [ "$DRY" != 1 ]; then
-    args=(--dir "$INSTALL_DIR" --repo "$REPO_URL" --whisper "$WHISPER" --bin-dir "$BIN_DIR")
-    [ -n "$BRANCH" ] && args+=(--branch "$BRANCH")
-    [ "$GPU" = yes ] && args+=(--gpu)
-    [ "$GPU" = no ] && args+=(--cpu)
-    [ -n "$PORT" ] && args+=(--port "$PORT")
-    [ -n "$PYTHON_OVERRIDE" ] && args+=(--python "$PYTHON_OVERRIDE")
-    [ "$YES" = 1 ] && args+=(--yes)
-    [ "$NO_MODELS" = 1 ] && args+=(--no-models)
-    [ "$NO_WHISPER" = 1 ] && args+=(--no-whisper)
-    [ "$SERVICE" = 1 ] && args+=(--service)
-    [ "$LAN" = 1 ] && args+=(--lan)
-    [ "$NO_VERIFY" = 1 ] && args+=(--no-verify)
-    exec bash "$INSTALL_DIR/install.sh" "${args[@]}" </dev/null
+
+  if [ "$UNINSTALL" = 1 ]; then uninstall; exit 0; fi
+
+  printf '%sclipper — instalador%s  (%s)\n' "$B" "$N" "$OS_NAME"
+  printf '  Registro detallado: %s   (puedes seguirlo con: tail -f %s)\n' "$LOG" "$LOG"
+  [ "$DRY" = 1 ] && warn "Modo simulación: no se cambia nada."
+
+  if [ "$FROM_CLONE" = 0 ]; then
+    # Hace falta git (y curl) antes de poder clonar
+    if ! need_cmd git; then
+      step "Instalando git"
+      case "$PM" in
+        apt) as_root apt-get update; as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y git ca-certificates ;;
+        dnf) as_root dnf install -y git ;;
+        pacman) as_root pacman -S --needed --noconfirm git ;;
+        *) die "Instala git y vuelve a ejecutar." ;;
+      esac
+    fi
+    fetch_code
+    # Continúa con el instalador del repo descargado (misma versión que el código)
+    if [ "$DRY" != 1 ]; then
+      args=(--dir "$INSTALL_DIR" --repo "$REPO_URL" --whisper "$WHISPER" --bin-dir "$BIN_DIR")
+      [ -n "$BRANCH" ] && args+=(--branch "$BRANCH")
+      [ "$GPU" = yes ] && args+=(--gpu)
+      [ "$GPU" = no ] && args+=(--cpu)
+      [ -n "$PORT" ] && args+=(--port "$PORT")
+      [ -n "$PYTHON_OVERRIDE" ] && args+=(--python "$PYTHON_OVERRIDE")
+      [ "$YES" = 1 ] && args+=(--yes)
+      [ "$NO_MODELS" = 1 ] && args+=(--no-models)
+      [ "$NO_WHISPER" = 1 ] && args+=(--no-whisper)
+      [ "$SERVICE" = 1 ] && args+=(--service)
+      [ "$LAN" = 1 ] && args+=(--lan)
+      [ "$NO_VERIFY" = 1 ] && args+=(--no-verify)
+      exec bash "$INSTALL_DIR/install.sh" "${args[@]}" </dev/null
+    fi
+    exit 0
   fi
-  exit 0
-fi
 
-step "Comprobaciones previas"
-avail_kb="$(df -Pk "$APP_DIR" | awk 'NR==2{print $4}')"
-[ "${avail_kb:-0}" -ge 4194304 ] || warn "Poco espacio libre ($((avail_kb / 1024)) MB). Se recomiendan ≥ 4 GB (modelos + dependencias + clips)."
-[ "$(id -u)" -eq 0 ] && warn "Ejecutando como root: el entorno y el comando quedarán a nombre de root (mejor usa un usuario normal)."
-ok "Instalación en: $APP_DIR"
+  step "Comprobaciones previas"
+  avail_kb="$(df -Pk "$APP_DIR" | awk 'NR==2{print $4}')"
+  [ "${avail_kb:-0}" -ge 4194304 ] || warn "Poco espacio libre ($((avail_kb / 1024)) MB). Se recomiendan ≥ 4 GB (modelos + dependencias + clips)."
+  [ "$(id -u)" -eq 0 ] && warn "Ejecutando como root: el entorno y el comando quedarán a nombre de root (mejor usa un usuario normal)."
+  ok "Instalación en: $APP_DIR"
 
-install_system_deps
-pick_python
-make_venv
-install_python_deps
-write_launcher
-set_port
-setup_lan
-download_models
-install_service
-verify
-[ "$DRY" = 1 ] || summary
+  install_system_deps
+  pick_python
+  make_venv
+  install_python_deps
+  write_launcher
+  set_port
+  setup_lan
+  download_models
+  install_service
+  verify
+  [ "$DRY" = 1 ] || summary
+}
+
+main "$@"
