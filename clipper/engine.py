@@ -81,12 +81,24 @@ class Engine:
         self.buffer.start()
         self.publisher.start()
         self.videos.start()
+        self._start_chat()
         for fn in (self._feeder, self._transcribe_loop, self._worker, self._update_loop, self._decider):
             t = threading.Thread(target=fn, name=fn.__name__, daemon=True)
             t.start()
             self._threads.append(t)
         self.event("system", f"motor iniciado (cómputo: {self.compute_info()['whisper_device']}, "
                              f"encoder: {self.compute_info()['encoder']})")
+
+    def _start_chat(self) -> None:
+        from . import chat
+        ch = chat.twitch_channel(self.cfg.source.url) if self.cfg.source.type == "live" and self.cfg.triggers.chat else None
+        if not ch:
+            return
+        def now():
+            b = self.reader.bounds()
+            return b[1] if b else None
+        chat.TwitchChat(ch, chat.ChatSpikes(self._auto, now), self._stop).start()
+        self.event("system", f"escuchando el chat de Twitch de {ch} (picos = momento destacado)")
 
     def stop(self) -> None:
         self._stop.set()
@@ -397,6 +409,8 @@ class Engine:
             j = out.with_suffix(".json")
             meta = json.loads(j.read_text()) if j.exists() else {}
             self.publisher.on_clip(out, meta, manual=job.reason == "manual")
+            from . import notify
+            threading.Thread(target=notify.clip_ready, args=(self.cfg, out.name, meta), daemon=True).start()
         except Exception as e:  # noqa: BLE001
             self.event("error", f"cola de publicación: {e}")
             log.exception("on_clip falló")

@@ -101,3 +101,13 @@ def test_api_fallback_without_word_timestamps():
     w = parse_words({"segments": [{"start": 0, "end": 2, "text": "uno dos"}]}, 5)
     assert [x.text for x in w] == ["uno", "dos"] and w[1].start == 6.0
     assert to_wav(np.zeros(100, np.float32))[:4] == b"RIFF"
+
+
+def test_notify_settings_roundtrip(tmp_path):
+    from clipper.config import Config
+    from clipper.settings import apply_update, public_view
+    c = Config()
+    apply_update(c, {"notify": {"enabled": True, "discord_webhook": "https://x/y", "telegram_chat": "5"}, "server": {"public_url": "http://a:1"}})
+    v = public_view(c)
+    assert v["notify"]["enabled"] and v["notify"]["discord_webhook_set"] is True and "discord_webhook" not in v["notify"]
+    assert c.server.public_url == "http://a:1"

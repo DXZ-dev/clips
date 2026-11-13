@@ -226,6 +226,7 @@ class TriggersCfg(BaseModel):
     cadence: CadenceCfg = CadenceCfg()
     keywords: KeywordsCfg = KeywordsCfg()
     visual: VisualCfg = VisualCfg()
+    chat: bool = True                     # picos del chat de Twitch (solo lectura, sin cuenta)
 
 
 Mode = Literal["review", "auto"]   # review = el clip espera tu aprobación en el panel; auto = se sube solo
@@ -325,11 +326,19 @@ class VodCfg(BaseModel):
     cookies_file: str = ""                       # cookies.txt (formato Netscape) para yt-dlp; ruta relativa a la carpeta de datos
 
 
+class NotifyCfg(BaseModel):
+    enabled: bool = False
+    discord_webhook: str = Field("", exclude=True, repr=False)
+    telegram_token: str = Field("", exclude=True, repr=False)
+    telegram_chat: str = ""
+
+
 class UpdateCfg(BaseModel):
     auto_check: bool = True              # consulta GitHub cada pocas horas y avisa si hay una versión nueva (no instala nada solo)
 
 
 class ServerCfg(BaseModel):
+    public_url: str = ""                 # para los enlaces de los avisos, p. ej. http://192.168.18.205:7848
     host: str = "127.0.0.1"
     port: int = 7848
     allowed_hosts: list[str] = []        # nombres extra aceptados en la cabecera Host (solo sin contraseña)
@@ -343,6 +352,7 @@ class Config(BaseModel):
     ai: AiCfg = AiCfg()
     vod: VodCfg = VodCfg()
     update: UpdateCfg = UpdateCfg()
+    notify: NotifyCfg = NotifyCfg()
     publish: PublishCfg = PublishCfg()
     server: ServerCfg = ServerCfg()
     source: SourceCfg = SourceCfg()
@@ -379,6 +389,8 @@ SECRET_PATHS = [
     "publish.tiktok.client_secret",
     "publish.instagram.access_token",
     "publish.webhook.auth_header",
+    "notify.discord_webhook",
+    "notify.telegram_token",
 ]
 
 

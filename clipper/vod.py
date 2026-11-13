@@ -30,7 +30,7 @@ from .spec import EditWord, default_spec
 from .subtitles import Word
 
 log = logging.getLogger("clipper.vod")
-WEIGHT = {"keyword": 3.0, "laughter": 2.5, "reaction": 2.2, "energy": 2.0, "action": 1.8, "cadence": 1.5}
+WEIGHT = {"keyword": 3.0, "laughter": 2.5, "reaction": 2.2, "energy": 2.0, "action": 1.8, "cadence": 1.5, "chat": 2.4}
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".ts", ".flv", ".wmv"}
 
 

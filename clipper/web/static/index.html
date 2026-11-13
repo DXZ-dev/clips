@@ -242,6 +242,11 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   <fieldset><legend>Vídeos (enlaces y análisis)</legend>
    <label>Clips como máximo por vídeo <input id="vd_max" type="number" min="1" max="50"></label>
    <label>Cookies para yt-dlp (archivo cookies.txt, ruta en el servidor) <input id="vd_cookies" placeholder="vacío = sin cookies"></label>
+   <label class="chk" style="grid-column:1/-1"><input type="checkbox" id="nt_on"> 📲 Avisarme al móvil cuando haya un clip listo</label>
+   <label>Discord (URL del webhook) <input id="nt_dc" type="password" autocomplete="off" placeholder="vacío = conservar"></label>
+   <label>Telegram: token del bot <input id="nt_tk" type="password" autocomplete="off" placeholder="vacío = conservar"></label>
+   <label>Telegram: chat id <input id="nt_ch"></label>
+   <label>URL pública del panel (para el enlace del aviso) <input id="nt_url" placeholder="http://192.168.18.205:7848"></label>
    <div class="mut" style="font-size:12px">Si YouTube pide «confirmar que no eres un robot» (pasa desde IPs de servidor), exporta las cookies de tu navegador (extensión «Get cookies.txt») y pon aquí la ruta del archivo.</div>
   </fieldset>
   <fieldset><legend>Seguridad</legend>
@@ -366,7 +371,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- fillPub(c);V("upd_auto",c.update.auto_check);updLoad();V("vd_max",c.vod.max_clips);V("vd_cookies",c.vod.cookies_file);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);V("upd_auto",c.update.auto_check);updLoad();V("vd_max",c.vod.max_clips);V("nt_on",c.notify.enabled);V("nt_ch",c.notify.telegram_chat);V("nt_url",c.server.public_url);$("nt_dc").placeholder=c.notify.discord_webhook_set?"guardado (vacío = conservar)":"https://discord.com/api/webhooks/…";$("nt_tk").placeholder=c.notify.telegram_token_set?"guardado (vacío = conservar)":"123456:ABC…";V("vd_cookies",c.vod.cookies_file);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -377,7 +382,7 @@ $("save").onclick=async()=>{
   triggers:{cooldown_seconds:+$("g_cool").value,auto_clip_seconds:+$("g_auto").value,post_roll_seconds:+$("g_post").value,
    energy:{enabled:$("e_on").checked,spike_db:+$("e_db").value},cadence:{enabled:$("c_on").checked},
    keywords:{enabled:$("k_on").checked,laughter:$("k_laugh").checked,phrases:$("k_phr").value.split("\n").map(x=>x.trim()).filter(Boolean)}},
-  publish:pubPatch(),vod:{max_clips:+$("vd_max").value||8,cookies_file:$("vd_cookies").value.trim()},ai:aiPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
+  server:{public_url:$("nt_url").value.trim()},notify:{enabled:$("nt_on").checked,discord_webhook:$("nt_dc").value.trim(),telegram_token:$("nt_tk").value.trim(),telegram_chat:$("nt_ch").value.trim()},publish:pubPatch(),vod:{max_clips:+$("vd_max").value||8,cookies_file:$("vd_cookies").value.trim()},ai:aiPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
  try{const r=await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
   $("smsg").textContent=r.changed.length?"Aplicado: "+r.changed.join(", "):"Sin cambios";$("a_clear").checked=false;loadSettings()}
  catch(e){$("smsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};

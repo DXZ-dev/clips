@@ -78,3 +78,15 @@ def test_device_selector(tmp_path):
     assert c.post("/api/device", json={"device": "cpu"}).json()["encoder"] == "libx264"
     assert c.post("/api/device", json={"device": "cuda"}).status_code == 200   # sin GPU cae a CPU
     assert c.post("/api/device", json={"device": "xx"}).status_code == 422
+
+
+def test_chat_spike_and_notify_cfg():
+    from clipper.chat import ChatSpikes, twitch_channel
+    assert twitch_channel("https://www.twitch.tv/Streamer") == "streamer" and twitch_channel("https://kick.com/x") is None
+    got = []
+    sp = ChatSpikes(got.append, lambda: 100.0)
+    for i in range(80):
+        sp.feed("hola", now=1000 + i)                      # ritmo normal
+    for i in range(20):
+        sp.feed("KEKW", now=1080 + i * 0.2)                # pico
+    assert got and got[0].kind == "chat" and got[0].t == 96.0
