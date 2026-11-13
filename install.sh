@@ -82,18 +82,31 @@ trap 'die "Falló la línea $LINENO. Revisa el registro: ${LOG:-/tmp/clipper-ins
 LOG="${TMPDIR:-/tmp}/clipper-install.$(date +%Y%m%d-%H%M%S).log"
 : >"$LOG"
 
-# Ejecuta un comando (o solo lo muestra con --dry-run). Salida detallada al registro.
+# Ejecuta un comando (o solo lo muestra con --dry-run). Salida detallada al registro; imprime un punto cada
+# 10 s para que se vea que sigue trabajando (apt/pip pueden tardar minutos sin escribir nada).
 run() {
   printf '  $ %s\n' "$*" >>"$LOG"
   if [ "$DRY" = 1 ]; then printf '  [dry-run] %s\n' "$*"; return 0; fi
-  "$@" >>"$LOG" 2>&1 || { echo "--- últimas líneas del registro ($LOG) ---" >&2; tail -n 25 "$LOG" >&2; return 1; }
+  "$@" >>"$LOG" 2>&1 </dev/null &
+  local pid=$! dots=0 rc=0
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    dots=$((dots + 1))
+    if [ $((dots % 10)) -eq 0 ] && kill -0 "$pid" 2>/dev/null; then printf '.'; fi
+  done
+  wait "$pid" || rc=$?
+  [ "$dots" -ge 10 ] && printf '\n'
+  if [ "$rc" -ne 0 ]; then
+    echo "--- últimas líneas del registro ($LOG) ---" >&2; tail -n 25 "$LOG" >&2; return 1
+  fi
+  return 0
 }
 
-# Como run, pero muestra la salida en pantalla (para descargas largas con barra de progreso).
-git_live() {
-  printf '  $ git %s\n' "$*" >>"$LOG"
-  if [ "$DRY" = 1 ]; then printf '  [dry-run] git %s\n' "$*"; return 0; fi
-  if git "$@" 2>&1 | tee -a "$LOG"; then return 0; else return 1; fi
+# Como run, pero muestra la salida en pantalla (descargas largas / instalaciones de paquetes del sistema).
+live() {
+  printf '  $ %s\n' "$*" >>"$LOG"
+  if [ "$DRY" = 1 ]; then printf '  [dry-run] %s\n' "$*"; return 0; fi
+  if "$@" 2>&1 </dev/null | tee -a "$LOG"; then return 0; else return 1; fi
 }
 
 # Pregunta sí/no (def. sí). Sin terminal o con --yes, asume sí. Lee de /dev/tty para funcionar con «curl | bash».
@@ -114,8 +127,7 @@ as_root() {
   if [ "$SUDO" = "__none__" ]; then
     die "Se necesitan permisos de administrador y no hay sudo. Ejecuta como root o instala a mano: $*"
   fi
-  # shellcheck disable=SC2086
-  run $SUDO "$@"
+  if [ -n "$SUDO" ]; then live "$SUDO" "$@"; else live "$@"; fi
 }
 
 # ----------------------------------------------------------------------------- sistema
@@ -143,11 +155,13 @@ install_system_deps() {
   local miss=()
   case "$PM" in
     apt)
-      mapfile -t miss < <(apt_missing ffmpeg python3-venv python3-pip git curl ca-certificates fonts-dejavu-core libegl1 libgl1 libglib2.0-0)
+      local glib=libglib2.0-0
+      apt-cache show libglib2.0-0t64 >/dev/null 2>&1 && glib=libglib2.0-0t64   # Debian 13 / Ubuntu 24.04
+      mapfile -t miss < <(apt_missing ffmpeg python3-venv python3-pip git curl ca-certificates fonts-dejavu-core libegl1 libgl1 "$glib")
       if [ "${#miss[@]}" -gt 0 ]; then
         ask "Instalar con apt: ${miss[*]}" || die "Sin esas dependencias no se puede continuar."
-        as_root apt-get update -y
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${miss[@]}"
+        as_root apt-get update
+        as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y "${miss[@]}"
       fi ;;
     dnf)
       warn "Fedora/RHEL: soporte sin probar. ffmpeg completo (con libx264) requiere RPM Fusion."
@@ -197,7 +211,7 @@ fetch_code() {
       warn "Hay cambios locales en $INSTALL_DIR: no se actualiza el código (se conservan)."
     else
       local br="${BRANCH:-$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD)}"
-      git_live -C "$INSTALL_DIR" fetch --depth 1 --progress origin "$br" || die "No se pudo leer la rama '$br'. ¿Existe? ¿Falta GITHUB_TOKEN (repo privado)?"
+      live git -C "$INSTALL_DIR" fetch --depth 1 --progress origin "$br" || die "No se pudo leer la rama '$br'. ¿Existe? ¿Falta GITHUB_TOKEN (repo privado)?"
       run git -C "$INSTALL_DIR" checkout -q -B "$br" FETCH_HEAD
       ok "Actualizado a $(git -C "$INSTALL_DIR" rev-parse --short HEAD)"
     fi
@@ -206,7 +220,7 @@ fetch_code() {
   else
     local clone=(clone --depth 1 --progress)
     [ -n "$BRANCH" ] && clone+=(--branch "$BRANCH")
-    git_live "${clone[@]}" "$REPO_URL" "$INSTALL_DIR" \
+    live git "${clone[@]}" "$REPO_URL" "$INSTALL_DIR" \
       || die "No se pudo clonar. El repositorio es privado: export GITHUB_TOKEN=... (permiso de lectura) y vuelve a ejecutar. Si la rama no existe, usa --branch."
     ok "Clonado en $INSTALL_DIR"
   fi
@@ -444,7 +458,7 @@ if [ "$FROM_CLONE" = 0 ]; then
   if ! need_cmd git; then
     step "Instalando git"
     case "$PM" in
-      apt) as_root apt-get update -y; as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates ;;
+      apt) as_root apt-get update; as_root env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y git ca-certificates ;;
       dnf) as_root dnf install -y git ;;
       pacman) as_root pacman -S --needed --noconfirm git ;;
       *) die "Instala git y vuelve a ejecutar." ;;
@@ -464,7 +478,7 @@ if [ "$FROM_CLONE" = 0 ]; then
     [ "$NO_WHISPER" = 1 ] && args+=(--no-whisper)
     [ "$SERVICE" = 1 ] && args+=(--service)
     [ "$NO_VERIFY" = 1 ] && args+=(--no-verify)
-    exec bash "$INSTALL_DIR/install.sh" "${args[@]}"
+    exec bash "$INSTALL_DIR/install.sh" "${args[@]}" </dev/null
   fi
   exit 0
 fi
