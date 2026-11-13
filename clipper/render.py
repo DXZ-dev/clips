@@ -277,7 +277,7 @@ def render_spec(cfg: Config, src: Path, spec: EditSpec, out_path: Path, preview:
             sv = spec.model_copy(update={"layout": "fit"}) if variant == "fit" else spec
             graph, seam_y, note = build_graph(cfg, sv, info, input_args, static=(variant in ("static", "flush")), cache=cache,
                                               panels="flush" if variant == "flush" else None)
-            pos = st.position or ("seam" if note["layout"] == "split" else None)
+            pos = st.position or (cfg.subtitles.position if note.get("panels") == "overlay" else "seam" if note["layout"] == "split" else None)
             sub_cfg = with_preset(cfg.subtitles, st.preset, highlight_color=st.highlight_color,
                                   primary_color=st.primary_color, font_size=st.font_size, position=pos, uppercase=st.uppercase)
             ass = build_ass(words if st.enabled else [], sub_cfg, cfg.reframe.width, cfg.reframe.height,
