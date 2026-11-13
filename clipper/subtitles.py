@@ -30,6 +30,10 @@ class Word:
     start: float   # segundos relativos al inicio del clip
     end: float
     text: str
+    spk: tuple | None = None   # (género m|f, n.º de voz) si se distinguieron voces
+
+
+VOICE_COLORS = {("m", 0): "#4DA3FF", ("m", 1): "#00E5FF", ("f", 0): "#FF5FC8", ("f", 1): "#FFB347"}
 
 
 def _color(hex_rgb: str) -> str:
@@ -102,7 +106,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             parts = []
             for j, w in enumerate(page):
                 tok = _clean(w.text, cfg.uppercase)
-                parts.append(f"{{\\c{hi}}}{tok}{{\\c{base}}}" if j == i else tok)
+                hc = _color(VOICE_COLORS[w.spk]) if (w.spk in VOICE_COLORS and j == i and cfg.voice_colors) else hi
+                parts.append(f"{{\\c{hc}}}{tok}{{\\c{base}}}" if j == i else tok)
                 if (j + 1) % cfg.max_words_per_line == 0 and j + 1 < len(page):
                     parts.append("\\N")
                 elif j + 1 < len(page):

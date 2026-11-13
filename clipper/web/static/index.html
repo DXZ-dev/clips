@@ -20,7 +20,7 @@ button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:8px;flex-wra
 #events{max-height:220px;overflow:auto;font-size:13px}.ev{padding:3px 0;border-bottom:1px solid var(--line)}.ev b{color:var(--ac);font-weight:600}
 .err{color:var(--bad)}#tr{font-style:italic;color:var(--mut);min-height:40px}
 #clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
-.cap{position:relative;width:300px;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden;cursor:crosshair;touch-action:none}.cap canvas,#cb_cv{width:100%;height:100%;display:block;pointer-events:none}.cap img{width:100%;height:100%;object-fit:fill;display:block;pointer-events:none;user-select:none}
+.stgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:800px){.stgrid{grid-template-columns:1fr}}.cap{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden;cursor:crosshair;touch-action:none}.cap canvas,#cb_cv{width:100%;height:100%;display:block;pointer-events:none}.cap img{width:100%;height:100%;object-fit:fill;display:block;pointer-events:none;user-select:none}
 .capr{position:absolute;border:2px solid;box-sizing:border-box;display:none;pointer-events:none}
 #cb_sub{position:absolute;top:70%;height:8%;left:4%;width:92%;border:2px dashed #fff;background:rgba(255,255,255,.18);color:#fff;font-size:11px;font-weight:700;text-align:center;border-radius:6px;cursor:ns-resize;z-index:3;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
 #cb_wrap{position:relative;overflow:hidden;width:200px;aspect-ratio:9/16;background:linear-gradient(160deg,#1f3b2e,#16222c);border:1px solid #35d07f;border-radius:8px;touch-action:none}
@@ -104,17 +104,6 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
     <label class="chk" style="margin:0"><input type="checkbox" id="zn_follow" checked> Seguir el rostro (con calma)</label>
     <label class="mut" style="margin:0">Estilo <select id="zn_panels" style="display:inline-block;width:auto"><option value="cards">2 pantallas (tarjetas)</option><option value="overlay">Cámara sobre pantalla 1 (arrastrable)</option><option value="flush">Pegadas</option></select></label><label class="mut" style="margin:0">Zoom <input type="range" id="zn_zoom" min="100" max="200" value="115" style="width:90px;display:inline-block;vertical-align:middle"> <b id="zn_zv">1.15×</b></label></div><div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
   <div class="mut" style="font-size:12px;margin-top:6px">«Directo oficial» es el reproductor de la propia plataforma (Twitch, Kick o YouTube): en vivo, sin retraso añadido. Los clips salen de la señal de clipper, que va unos segundos por detrás. Solo se carga mientras esta pestaña está abierta.</div></section>
-<section class="card" id="studio" style="margin-top:12px"><h2>Estudio de recorte <span class="mut" style="text-transform:none;letter-spacing:0">· 4 ventanas: directo, 2 capturas y clips</span></h2>
- <div class="mut" style="font-size:12px;margin-bottom:8px">Dibuja con el ratón sobre cada captura la zona que quieres: lo que recortes es lo que se graba. En el lienzo 9:16 arrastra la cámara y la franja de subtítulos; el diseño y tamaño del texto se eligen en «Subtítulos».</div>
- <div class="row" style="align-items:flex-start;gap:14px">
-  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b style="color:#35d07f">① Pantalla</b> (fondo del clip)</div><div class="cap" id="cap1"><canvas width="640" height="360"></canvas><div class="capr" style="border-color:#35d07f;background:rgba(53,208,127,.15)"></div></div></div>
-  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b style="color:#ffd400">② Cámara</b> (encima)</div><div class="cap" id="cap2"><canvas width="640" height="360"></canvas><div class="capr" style="border-color:#ffd400;background:rgba(255,212,0,.15)"></div></div></div>
-  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b>③ Lienzo del clip</b> 9:16</div><div id="cb_area"><div class="mut" style="font-size:12px;margin-bottom:6px">Lienzo del clip (9:16). <b>Pantalla 1</b> (recuadro verde del directo) llena todo el fondo; arrastra la caja para colocar la <b>pantalla 2</b> (cámara, recuadro de la cámara) y estira la esquina para cambiar su tamaño.</div>
- <div id="cb_wrap"><canvas id="cb_cv" width="360" height="640"></canvas><div id="cb_sub">SUBTÍTULOS</div><div id="cb_box"><span>2 · Cámara</span><i id="cb_h"></i></div></div></div>
-</div>
- </div>
- <video id="st_vid" muted playsinline autoplay style="position:absolute;width:2px;height:2px;opacity:0;pointer-events:none"></video><div class="mut" id="st_state" style="font-size:12px;margin-top:6px"></div>
- <div class="row" style="margin-top:10px"><button id="st_save" class="sel">Guardar recortes</button><button id="st_ref">↻ Actualizar captura</button><span class="mut" id="st_msg"></span></div></section>
 <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
   <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
   <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto">Automático</button><button data-l="split">Cámara + gameplay</button><button data-l="fit">Completo</button></div>
@@ -123,6 +112,17 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   <div class="mut" id="pv_msg" style="margin-top:6px;font-size:13px"></div>
   <div class="mut" style="font-size:12px;margin-top:4px">Muestra cómo quedaría un clip de los últimos 8 s con el diseño y los subtítulos actuales. Se genera en baja resolución; consume algo de CPU mientras está activada.</div></section>
 </div>
+<section class="card" id="studio" style="margin-top:12px;margin-bottom:12px"><h2>Estudio de recorte <span class="mut" style="text-transform:none;letter-spacing:0">· 4 ventanas: directo, 2 capturas y clips</span></h2>
+ <div class="mut" style="font-size:12px;margin-bottom:8px">Dibuja con el ratón sobre cada captura la zona que quieres: lo que recortes es lo que se graba. En el lienzo 9:16 arrastra la cámara y la franja de subtítulos; el diseño y tamaño del texto se eligen en «Subtítulos».</div>
+ <div class="stgrid">
+  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b style="color:#35d07f">① Pantalla</b> (fondo del clip)</div><div class="cap" id="cap1"><canvas width="640" height="360"></canvas><div class="capr" style="border-color:#35d07f;background:rgba(53,208,127,.15)"></div></div></div>
+  <div><div class="mut" style="font-size:12px;margin-bottom:4px"><b style="color:#ffd400">② Cámara</b> (encima)</div><div class="cap" id="cap2"><canvas width="640" height="360"></canvas><div class="capr" style="border-color:#ffd400;background:rgba(255,212,0,.15)"></div></div></div>
+  <div style="grid-column:1/-1"><div class="mut" style="font-size:12px;margin-bottom:4px"><b>③ Lienzo del clip</b> 9:16</div><div id="cb_area"><div class="mut" style="font-size:12px;margin-bottom:6px">Lienzo del clip (9:16). <b>Pantalla 1</b> (recuadro verde del directo) llena todo el fondo; arrastra la caja para colocar la <b>pantalla 2</b> (cámara, recuadro de la cámara) y estira la esquina para cambiar su tamaño.</div>
+ <div id="cb_wrap"><canvas id="cb_cv" width="360" height="640"></canvas><div id="cb_sub">SUBTÍTULOS</div><div id="cb_box"><span>2 · Cámara</span><i id="cb_h"></i></div></div></div>
+</div>
+ </div>
+ <video id="st_vid" muted playsinline autoplay style="position:absolute;width:2px;height:2px;opacity:0;pointer-events:none"></video><div class="mut" id="st_state" style="font-size:12px;margin-top:6px"></div>
+ <div class="row" style="margin-top:10px"><button id="st_save" class="sel">Guardar recortes</button><button id="st_ref">↻ Actualizar captura</button><span class="mut" id="st_msg"></span></div></section>
 <section class="card" id="subcard" style="margin-top:12px"><h2>Subtítulos <span id="sb_chip" class="chip2"></span></h2>
  <div class="mut" style="font-size:13px;margin-bottom:10px">Ajusta el aspecto y míralo en la <b>Previa del clip</b> (si aún no hay transcripción, muestra un texto de ejemplo). Los clips automáticos usarán este estilo; en el editor de cada clip puedes cambiarlo.</div>
  <div class="seg2" id="sb_presets"></div>
@@ -136,7 +136,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   <label>Sombra: <b id="sb_shv"></b> <input type="range" id="sb_sh" min="0" max="12"></label>
   <label>Palabras por línea: <b id="sb_wpv"></b> <input type="range" id="sb_wp" min="1" max="6"></label>
   <label>Colores — texto <input type="color" id="sb_c1"> palabra activa <input type="color" id="sb_c2"> borde <input type="color" id="sb_c3"></label>
-  <div class="row" style="grid-column:1/-1"><label class="chk" style="margin:0"><input type="checkbox" id="sb_up"> MAYÚSCULAS</label><label class="chk" style="margin:0"><input type="checkbox" id="sb_bold"> Negrita</label></div>
+  <div class="row" style="grid-column:1/-1"><label class="chk" style="margin:0"><input type="checkbox" id="sb_up"> MAYÚSCULAS</label><label class="chk" style="margin:0"><input type="checkbox" id="sb_vc"> Un color por voz (♀ rosa / ♂ azul)</label><label class="chk" style="margin:0"><input type="checkbox" id="sb_bold"> Negrita</label></div>
  </div>
  <div class="row" style="margin-top:12px"><button id="sb_ok" class="sel">✔ Los subtítulos están bien</button><button id="sb_reset">Restablecer</button><span id="sb_msg" class="mut"></span></div></section>
 <div class="grid" style="margin-top:12px">
@@ -547,7 +547,7 @@ document.querySelectorAll("#pv_layout button").forEach(b=>b.onclick=async()=>{tr
 loadSource();
 /* ---- subtítulos ---- */
 let SBT=null,sbBusy=false;
-const SBF=[["sb_on","enabled","c"],["sb_font","font","v"],["sb_pos","position","v"],["sb_size","font_size","n"],["sb_off","offset_y","n"],["sb_out","outline","n"],["sb_sh","shadow","n"],["sb_wp","max_words_per_line","n"],["sb_c1","primary_color","v"],["sb_c2","highlight_color","v"],["sb_c3","outline_color","v"],["sb_up","uppercase","c"],["sb_bold","bold","c"]];
+const SBF=[["sb_on","enabled","c"],["sb_font","font","v"],["sb_pos","position","v"],["sb_size","font_size","n"],["sb_off","offset_y","n"],["sb_out","outline","n"],["sb_sh","shadow","n"],["sb_wp","max_words_per_line","n"],["sb_c1","primary_color","v"],["sb_c2","highlight_color","v"],["sb_c3","outline_color","v"],["sb_up","uppercase","c"],["sb_bold","bold","c"],["sb_vc","voice_colors","c"]];
 const SBV={sb_size:"sb_sizev",sb_off:"sb_offv",sb_out:"sb_outv",sb_sh:"sb_shv",sb_wp:"sb_wpv"};
 function sbFill(c){SBT=c;const st=c.subtitles;
  for(const [id,k,t] of SBF){const e=$(id);if(t==="c")e.checked=!!st[k];else if(id==="sb_font"){if(![...e.options].some(o=>o.value===st[k])){e.add(new Option(st[k],st[k]))}e.value=st[k]}else e.value=st[k];if(SBV[id])$(SBV[id]).textContent=st[k]}

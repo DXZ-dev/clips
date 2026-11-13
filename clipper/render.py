@@ -263,6 +263,15 @@ def render_spec(cfg: Config, src: Path, spec: EditSpec, out_path: Path, preview:
         s0, e0 = w.start - start, w.end - start
         if e0 > 0 and s0 < dur and w.text.strip():
             words.append(Word(max(0.0, s0), min(dur, e0), w.text))
+    if cfg.subtitles.voice_colors and not preview and len(words) >= 6:
+        try:
+            from .voices import label_words
+            lab = label_words(str(src), start, dur, words)
+            if lab:
+                for w, l in zip(words, lab):
+                    w.spk = l
+        except Exception as e:  # noqa: BLE001  — distinguir voces es un extra: nunca debe impedir el clip
+            log.warning("no se pudieron distinguir voces: %s", e)
     st = spec.subtitles
     hook = (spec.hook.text, spec.hook.seconds) if spec.hook.text.strip() else None
     mark = (spec.watermark.text, spec.watermark.corner) if spec.watermark.text.strip() else None

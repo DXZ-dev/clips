@@ -323,3 +323,25 @@ def test_pro_polish_render(cfg, source):
     assert "fallback" not in meta, meta
     i = probe(ed.out_dir(cfg) / "clip_p.mp4")
     assert (i.width, i.height) == (1080, 1920)
+
+
+def test_voices_male_female_colors():
+    import numpy as np
+    from clipper import voices
+    from clipper.subtitles import Word, build_ass
+    sr = voices.SR
+
+    def voice(f0, n):
+        t = np.arange(int(sr * n)) / sr
+        return sum(np.sin(2 * np.pi * f0 * k * t) / k for k in range(1, 8)).astype(np.float32) * 0.15
+    x = np.concatenate([voice(115, 1.6), voice(230, 1.6)])
+    words = [Word(i * 0.4, i * 0.4 + 0.35, f"p{i}") for i in range(8)]
+    f0s = [voices.f0_of(x[int(w.start * sr):int(w.end * sr)]) for w in words]
+    assert 100 < f0s[0] < 135 and 210 < f0s[-1] < 250
+    lab = voices.assign(f0s)
+    assert lab and {l[0] for l in lab[:4]} == {"m"} and {l[0] for l in lab[4:]} == {"f"}
+    assert voices.assign([120.0] * 10) is None                      # una sola voz: no se tocan los colores
+    for w, l in zip(words, lab):
+        w.spk = l
+    ass = build_ass(words, Config().subtitles)
+    assert "00FFA34D" in ass.upper() and "00C85FFF" in ass.upper()   # azul (♂) y rosa (♀) en BGR
