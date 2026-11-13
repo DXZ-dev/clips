@@ -48,11 +48,20 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
 .job{padding:10px 0;border-bottom:1px solid var(--line)}.job:last-child{border:0}
 #vjobs a{color:var(--ac);cursor:pointer}
 #vfile{display:none!important}
+.camwrap{position:relative;line-height:0;margin-bottom:8px}.camwrap img{width:100%;border-radius:8px;background:#000;min-height:50px;display:block}
+.camrect{position:absolute;border:2px solid var(--ac);background:rgba(255,230,0,.14);cursor:move;touch-action:none}
+.camrect b{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:var(--ac);border-radius:3px;cursor:nwse-resize}
+.lvbox{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:16/9}.lvbox video{width:100%;height:100%;display:block;object-fit:contain}
+#lv_off{position:absolute;inset:0;display:grid;place-items:center;color:var(--mut);background:#0b0d12;text-align:center;padding:12px}
+.chip2.live{background:#3b1717;color:#ff8f8f}.chip2.live:before{content:"● ";color:#ff4d4d}
+.amrecent{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}.amrecent .it{font-size:12px;color:var(--mut)}
+.amrecent video{width:100%;aspect-ratio:9/16;background:#000;border-radius:8px;display:block;margin-bottom:3px}
+.seg2 button.sel{font-weight:700}.seg2 button.off{opacity:.45}
 .pvbox video{display:block;margin:0 auto;aspect-ratio:9/16;max-height:62vh;width:auto;max-width:100%;background:#000;border-radius:14px}
 code{background:#10131a;padding:1px 6px;border-radius:5px}
 </style></head>
 <body><header class="top"><div class="brand">✂️ <b>clipper</b> <span class="mut" id="src"></span></div>
- <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes</a></nav><a id="logout" style="display:none;margin-left:auto;color:var(--mut);cursor:pointer">Salir</a></header>
+ <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes <i class="badge" id="nu"></i></a></nav><a id="logout" style="display:none;margin-left:auto;color:var(--mut);cursor:pointer">Salir</a></header>
 <main>
 <div class="view on" id="v_live">
 <section class="card" id="srccard" style="margin-bottom:12px"><h2>Fuente del directo <span id="src_plat" class="chip2"></span> <span id="src_state" class="mut" style="text-transform:none;letter-spacing:0"></span></h2>
@@ -66,6 +75,40 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
  <div class="row" style="margin-top:12px"><button id="src_save" class="sel">Guardar y conectar</button><span id="src_msg" class="mut"></span></div>
 </section>
 <div class="grid">
+<section class="card"><h2>Directo en vivo <span id="lv_badge" class="chip2"></span></h2>
+  <div class="lvbox"><video id="lv_vid" muted playsinline autoplay controls></video><div id="lv_off">Esperando señal del directo…</div></div>
+  <div class="row" style="margin-top:10px"><label class="chk" style="margin:0"><input type="checkbox" id="lv_on" checked> Mostrar el directo</label>
+   <button id="lv_mute">🔇 Activar sonido</button><button id="lv_edge">⏩ Ir al directo</button><span class="mut" id="lv_info" style="font-size:13px"></span></div>
+  <div class="mut" style="font-size:12px;margin-top:6px">Es el directo que recibe clipper (con ~10-20 s de retraso). Solo se descarga mientras esta pestaña está abierta y la casilla marcada.</div></section>
+<section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
+  <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
+  <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto">Automático</button><button data-l="split">Cámara + gameplay</button><button data-l="fit">Completo</button></div>
+  <div class="row" style="margin-top:10px"><button id="pv_now">Actualizar previa</button><label class="chk" style="margin:0"><input type="checkbox" id="pv_live"> Previa en vivo (cada ~12 s)</label></div>
+  <details id="camtool" style="margin-top:12px"><summary style="cursor:pointer;font-weight:600">📷 Marcar la cámara del streamer</summary>
+   <div class="mut" style="font-size:12px;margin:6px 0">Toma una imagen del directo y ajusta el rectángulo amarillo sobre tu cámara. Se guarda una vez y se usa en todos los clips y en la previa. Con «Autodetección» se busca sola en cada clip.</div>
+   <div class="camwrap" id="cam_wrap"><img id="cam_img" alt=""><div id="cam_rect" class="camrect" style="display:none"><b></b></div></div>
+   <div class="row"><button id="cam_snap">📸 Tomar imagen</button><button id="cam_det">🔍 Detectar</button><button id="cam_save" class="sel">Guardar cámara</button><button id="cam_auto">Autodetección</button></div>
+   <div class="mut" id="cam_msg" style="font-size:12px;margin-top:6px"></div></details>
+  <div class="mut" id="pv_msg" style="margin-top:6px;font-size:13px"></div>
+  <div class="mut" style="font-size:12px;margin-top:4px">Muestra cómo quedaría un clip de los últimos 8 s con el diseño y los subtítulos actuales. Se genera en baja resolución; consume algo de CPU mientras está activada.</div></section>
+</div>
+<section class="card" id="subcard" style="margin-top:12px"><h2>Subtítulos <span id="sb_chip" class="chip2"></span></h2>
+ <div class="mut" style="font-size:13px;margin-bottom:10px">Ajusta el aspecto y míralo en la <b>Previa del clip</b> (si aún no hay transcripción, muestra un texto de ejemplo). Los clips automáticos usarán este estilo; en el editor de cada clip puedes cambiarlo.</div>
+ <div class="seg2" id="sb_presets"></div>
+ <div class="row2f" style="margin-top:12px">
+  <label class="chk" style="grid-column:1/-1"><input type="checkbox" id="sb_on"> Subtítulos activados</label>
+  <label>Tipo de letra <select id="sb_font"></select></label>
+  <label>Posición <select id="sb_pos"><option value="lower_third">Tercio inferior</option><option value="bottom">Abajo</option><option value="center">Centro</option><option value="seam">En la unión cámara / gameplay</option></select></label>
+  <label>Tamaño: <b id="sb_sizev"></b> <input type="range" id="sb_size" min="40" max="160"></label>
+  <label>Subir / bajar: <b id="sb_offv"></b> <input type="range" id="sb_off" min="-400" max="400" step="10"></label>
+  <label>Grosor del borde: <b id="sb_outv"></b> <input type="range" id="sb_out" min="0" max="20"></label>
+  <label>Sombra: <b id="sb_shv"></b> <input type="range" id="sb_sh" min="0" max="12"></label>
+  <label>Palabras por línea: <b id="sb_wpv"></b> <input type="range" id="sb_wp" min="1" max="6"></label>
+  <label>Colores — texto <input type="color" id="sb_c1"> palabra activa <input type="color" id="sb_c2"> borde <input type="color" id="sb_c3"></label>
+  <div class="row" style="grid-column:1/-1"><label class="chk" style="margin:0"><input type="checkbox" id="sb_up"> MAYÚSCULAS</label><label class="chk" style="margin:0"><input type="checkbox" id="sb_bold"> Negrita</label></div>
+ </div>
+ <div class="row" style="margin-top:12px"><button id="sb_ok" class="sel">✔ Los subtítulos están bien</button><button id="sb_reset">Restablecer</button><span id="sb_msg" class="mut"></span></div></section>
+<div class="grid" style="margin-top:12px">
  <section class="card"><h2>Buffer</h2>
   <div><span class="dot" id="live"></span><span id="livetxt">—</span></div>
   <div class="bar"><i id="fill"></i></div>
@@ -84,18 +127,21 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   <h2 style="margin-top:14px">Última transcripción</h2><div id="tr">—</div>
  </section>
 </div>
-<div class="grid" style="margin-top:12px">
- <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
-  <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
-  <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto">Automático</button><button data-l="split">Cámara + gameplay</button><button data-l="fit">Completo</button></div>
-  <div class="row" style="margin-top:10px"><button id="pv_now">Actualizar previa</button><label class="chk" style="margin:0"><input type="checkbox" id="pv_live"> Previa en vivo (cada ~12 s)</label></div>
-  <div class="mut" id="pv_msg" style="margin-top:6px;font-size:13px"></div>
-  <div class="mut" style="font-size:12px;margin-top:4px">Muestra cómo quedaría un clip de los últimos 8 s con el diseño y los subtítulos actuales. Se genera en baja resolución; consume algo de CPU mientras está activada.</div></section>
- <section class="card"><h2>Clips automáticos del directo</h2>
- <label class="chk"><input type="checkbox" id="auto_on"> Sacar clips solos de los momentos destacados</label>
- <div class="mut" style="font-size:13px;margin-top:4px">Con el directo en marcha detectamos palabras clave, risas, picos de volumen y habla acelerada, y guardamos el clip sin que hagas nada. Para un vídeo ya grabado usa la pestaña <b>Vídeos</b>.</div></section>
-</div>
-<section class="card"><h2>Eventos</h2><div id="events"></div></section>
+
+<section class="card" id="amcard" style="margin-top:12px"><h2>Modo automático de clips <span id="am_chip" class="chip2"></span> <span class="mut" id="am_count" style="text-transform:none;letter-spacing:0"></span></h2>
+  <div class="seg2" id="am_mode"><button data-m="off">✋ Manual</button><button data-m="review">🤖 Automático · a revisión</button><button data-m="auto">⚡ Automático total</button></div>
+  <div class="mut" id="am_help" style="font-size:13px;margin:8px 0 8px"></div>
+  <div id="am_check" style="font-size:13px;margin-bottom:12px;line-height:1.7"></div>
+  <div class="row2f"><label>Sensibilidad <select id="am_sens"><option value="low">Baja: solo lo más fuerte</option><option value="medium">Media</option><option value="high">Alta: más clips</option></select></label>
+   <label>Duración de cada clip <select id="am_dur"><option value="15">15 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option></select></label>
+   <label>Máximo de clips por hora <input id="am_max" type="number" min="1" max="120"></label>
+   <label>Separación mínima entre clips (s) <input id="am_cool" type="number" min="5"></label></div>
+  <div class="mut" style="margin:12px 0 6px;font-size:13px">Qué cuenta como momento destacado:</div>
+  <div class="seg2" id="am_det"><button data-d="kw">🗣 Palabras clave</button><button data-d="lg">😂 Risas</button><button data-d="en">🔊 Picos de volumen</button><button data-d="cd">⚡ Habla rápida</button></div>
+  <div class="mut" id="am_kw" style="font-size:12px;margin-top:6px"></div>
+  <div class="mut" style="margin:14px 0 6px;font-size:13px">Últimos clips automáticos <a id="am_all" style="color:var(--ac);cursor:pointer">ver todos →</a></div>
+  <div id="am_recent" class="amrecent"><span class="mut">Todavía no hay clips automáticos.</span></div></section>
+<section class="card" style="margin-top:12px"><h2>Eventos</h2><div id="events"></div></section>
 </div>
 <div class="view" id="v_videos">
 <div class="grid">
@@ -130,6 +176,11 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
 </div>
 <div class="view" id="v_set">
 <section class="card" id="settings"><h2>⚙️ Ajustes</h2>
+ <div class="card" id="updcard" style="margin-bottom:14px;box-shadow:none"><h2>Actualizaciones <span id="upd_chip" class="chip2"></span></h2>
+  <div class="mut" id="upd_cur" style="font-size:13px"></div><div class="mut" id="upd_new" style="font-size:13px;margin-top:2px"></div>
+  <div class="row" style="margin-top:10px"><button id="upd_check">Buscar actualizaciones</button><button id="upd_go" class="sel" disabled>Actualizar ahora</button>
+   <label class="chk" style="margin:0"><input type="checkbox" id="upd_auto"> Avisarme cuando haya una versión nueva</label></div>
+  <div class="mut" id="upd_msg" style="margin-top:8px;font-size:13px"></div><pre id="upd_log" style="display:none;max-height:220px;overflow:auto;background:#0b0d12;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px;margin:8px 0 0;white-space:pre-wrap"></pre></div>
  <p class="mut" style="font-size:12px">Todo funciona en local. Solo hay tráfico de red si eliges aquí una fuente en vivo remota o el proveedor de transcripción «API».</p>
  <div class="form">
   <fieldset><legend>Fuente</legend>
@@ -228,7 +279,7 @@ function pickDur(s){secs=s;$("gosec").textContent=s;document.querySelectorAll("#
 async function status(){
  let s;try{s=await api("/api/status")}catch{$("livetxt").textContent="sin conexión con el servidor";return}
  $("src").textContent="· fuente: "+s.source;
- $("logout").style.display=s.auth?"inline":"none";if(document.activeElement!==$("auto_on"))$("auto_on").checked=!!s.auto_enabled;const pr=s.publish.pending_review;$("nb").textContent=pr;$("nb").classList.toggle("on",pr>0);
+ window._live=!!(s.buffer&&s.buffer.live);window._tr=!!(s.transcriber&&s.transcriber.ready);$("am_count").textContent=s.auto?"· "+s.auto.last_hour+" en la última hora (máx. "+s.auto.max_per_hour+")":"";$("logout").style.display=s.auth?"inline":"none";$("nu").textContent="!";$("nu").classList.toggle("on",!!(s.update&&s.update.available));const pr=s.publish.pending_review;$("nb").textContent=pr;$("nb").classList.toggle("on",pr>0);
  if(!buildDur){buildDur=true;$("durs").innerHTML=s.durations.map(d=>`<button data-s="${d}">${d} s</button>`).join("");
   document.querySelectorAll("#durs button").forEach(b=>b.onclick=()=>pickDur(+b.dataset.s));pickDur(s.default_seconds)}
  const b=s.buffer;$("live").className="dot"+(b.live?" on":"");$("livetxt").textContent=b.live?"En directo":(b.error?"Error: "+b.error:"Esperando señal…");
@@ -269,7 +320,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- fillPub(c);V("vd_max",c.vod.max_clips);V("vd_cookies",c.vod.cookies_file);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);V("upd_auto",c.update.auto_check);updLoad();V("vd_max",c.vod.max_clips);V("vd_cookies",c.vod.cookies_file);$("sec_state").innerHTML=c.server.password_hash_set?"🔒 Panel protegido con contraseña":"⚠️ Sin contraseña: solo accesible desde este equipo";$("sec_cur_l").style.display=c.server.password_hash_set?"block":"none";V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -289,6 +340,27 @@ function aiPatch(){const l={enabled:$("i_on").checked,provider:$("i_prov").value
 async function testAi(target,msgId){const m=$(msgId);m.className="mut";m.textContent="Guardando…";
  try{await $("save").onclick();m.className="mut";m.textContent="Probando…";const r=await api("/api/ai/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target})});m.innerHTML='<span style="color:var(--ok)">✔ '+esc(r.reply)+"</span>"}
  catch(e){m.innerHTML='<span class="err">'+esc(e.message)+"</span>"}}
+/* ---- actualizaciones ---- */
+let updPoll=null,updWasRunning=false;
+function renderUpd(u){const cur=u.current;
+ $("upd_cur").textContent=cur?`Versión instalada: ${cur.short} (${cur.date}) — ${cur.subject}`:"Versión instalada: desconocida";
+ const chip=$("upd_chip"),go=$("upd_go");chip.className="chip2";go.disabled=true;go.textContent="Actualizar ahora";
+ if(!u.supported){chip.textContent="no disponible";$("upd_new").textContent=u.why;return}
+ if(u.running){chip.textContent="actualizando…";chip.classList.add("run");$("upd_new").textContent="Instalando la versión nueva: el panel se reiniciará solo.";return}
+ if(u.error){chip.textContent="error";chip.classList.add("bad");$("upd_new").textContent=u.error;return}
+ if(u.update_available&&u.latest){chip.textContent="hay una versión nueva";chip.classList.add("run");$("upd_new").textContent=`Disponible: ${u.latest.short} (${u.latest.date}) — ${u.latest.subject}`;go.disabled=!u.can_apply;if(!u.can_apply)$("upd_msg").textContent=u.why_apply}
+ else{chip.textContent=u.checked_at?"al día":"sin comprobar";if(u.checked_at)chip.classList.add("ok");$("upd_new").textContent=u.checked_at?"Tienes la última versión.":"Pulsa «Buscar actualizaciones» para consultar GitHub."}
+ if(!u.can_apply&&u.update_available===false&&u.supported&&!u.running&&u.why_apply&&!$("upd_msg").textContent)$("upd_msg").textContent=u.why_apply}
+async function updLoad(){try{renderUpd(await api("/api/update"))}catch{}}
+$("upd_check").onclick=async()=>{$("upd_msg").textContent="Consultando GitHub…";try{renderUpd(await api("/api/update/check",{method:"POST"}));$("upd_msg").textContent=""}catch(e){$("upd_msg").textContent=e.message}};
+$("upd_go").onclick=async()=>{if(!confirm("Se descargará la versión nueva y se reinstalará. El panel dejará de responder unos minutos (y se pierde el buffer del directo). Tus ajustes, claves y clips se conservan.\n\n¿Actualizar ahora?"))return;
+ try{await api("/api/update/apply",{method:"POST"});$("upd_msg").textContent="Actualización iniciada…";updWasRunning=true;$("upd_log").style.display="block";$("upd_log").textContent="";clearInterval(updPoll);updPoll=setInterval(updWatch,3000)}catch(e){$("upd_msg").textContent=e.message}};
+async function updWatch(){let u;try{u=await (await fetch("/api/update")).json()}catch{$("upd_msg").textContent="El panel se está reiniciando…";return}
+ if(u.detail){return}
+ $("upd_log").style.display="block";$("upd_log").textContent=(u.log||[]).join("\n");$("upd_log").scrollTop=1e6;renderUpd(u);
+ if(!u.running&&updWasRunning){clearInterval(updPoll);updWasRunning=false;
+  $("upd_msg").innerHTML=u.result==="ok"?'<span style="color:var(--ok)">✔ Actualizado correctamente. Recarga la página (Ctrl+F5) para cargar la interfaz nueva.</span>':'<span class="err">La actualización no terminó bien: revisa el registro de arriba.</span>'}}
+$("upd_auto").onchange=async()=>{try{await api("/api/settings",PUT({update:{auto_check:$("upd_auto").checked}}))}catch(e){$("upd_msg").textContent=e.message}};
 $("sec_go").onclick=async()=>{const m=$("sec_msg");m.className="mut";
  if($("sec_new").value!==$("sec_new2").value){m.className="err";m.textContent="No coinciden.";return}
  try{await api("/api/auth/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current:$("sec_cur").value,new:$("sec_new").value})});
@@ -345,7 +417,7 @@ window.refreshClips=()=>{lastClips="";clips()};
 /* ---- navegación y vídeos ---- */
 function show(v){document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v_"+v));document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
  if(location.hash!=="#"+v)history.replaceState(null,"","#"+v);window.scrollTo(0,0);
- if(v==="set")loadSettings();if(v==="live")loadSource();if(v==="videos"){vjobs();vplats()}if(v==="clips")refreshClips();}
+ if(v==="set")loadSettings();if(v==="live"){loadSource();loadAuto();amRecent();loadSubs()}if(v==="videos"){vjobs();vplats()}if(v==="clips")refreshClips();}
 document.querySelectorAll("#nav a").forEach(a=>a.onclick=()=>show(a.dataset.v));
 const VMODE={m:"highlights"};
 document.querySelectorAll("#vmode button").forEach(b=>b.onclick=()=>{VMODE.m=b.dataset.m;document.querySelectorAll("#vmode button").forEach(x=>x.classList.toggle("sel",x===b));
@@ -387,7 +459,6 @@ async function vjobs(){let j;try{j=await api("/api/videos")}catch{return}
  document.querySelectorAll("[data-vd]").forEach(b=>b.onclick=async()=>{try{await api(`/api/videos/${b.dataset.vd}`,{method:"DELETE"})}catch{}vsig="";vjobs()});
  document.querySelectorAll("[data-goclips]").forEach(a=>a.onclick=()=>show("clips"));document.querySelectorAll("[data-gopub]").forEach(a=>a.onclick=()=>show("pub"))}
 setInterval(vjobs,2500);
-$("auto_on").onchange=async()=>{try{await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({triggers:{auto_enabled:$("auto_on").checked}})})}catch(e){alert(e.message)}};
 
 /* ---- fuente del directo y previa ---- */
 const SRC={type:"live"},PNAME={twitch:"Twitch",kick:"Kick",youtube:"YouTube"};
@@ -399,7 +470,7 @@ $("src_url").oninput=()=>{const p=platOf($("src_url").value);$("src_plat").textC
 async function loadSource(){let c;try{c=await api("/api/settings")}catch{return}
  const t=c.source.type;srcType(["live","streamlink","ytdlp"].includes(t)?"live":t==="rtmp"?"rtmp":"file");
  if(["live","streamlink","ytdlp"].includes(t))$("src_url").value=c.source.url;$("src_url").oninput();$("src_file_in").value=c.source.file;
- document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode))}
+ document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode));CAM.rect=c.layout.facecam;camDraw()}
 const PUT=b=>({method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
 $("src_probe").onclick=async()=>{const m=$("src_msg"),u=$("src_url").value.trim();m.className="mut";if(!u){m.className="err";m.textContent="Pega un enlace.";return}m.textContent="Comprobando (puede tardar unos segundos)…";
  try{const r=await api("/api/source/probe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});
@@ -421,7 +492,101 @@ $("pv_live").onchange=()=>{clearInterval(pvTimer);if($("pv_live").checked){pvRef
 setInterval(()=>{if(pvAt)$("pv_age").textContent="· hace "+Math.round((Date.now()-pvAt)/1000)+" s"},1000);
 document.querySelectorAll("#pv_layout button").forEach(b=>b.onclick=async()=>{try{await api("/api/settings",PUT({layout:{mode:b.dataset.l}}));document.querySelectorAll("#pv_layout button").forEach(x=>x.classList.toggle("sel",x===b));pvRefresh(true)}catch(e){$("pv_msg").textContent=e.message}});
 loadSource();
+/* ---- subtítulos ---- */
+let SBT=null,sbBusy=false;
+const SBF=[["sb_on","enabled","c"],["sb_font","font","v"],["sb_pos","position","v"],["sb_size","font_size","n"],["sb_off","offset_y","n"],["sb_out","outline","n"],["sb_sh","shadow","n"],["sb_wp","max_words_per_line","n"],["sb_c1","primary_color","v"],["sb_c2","highlight_color","v"],["sb_c3","outline_color","v"],["sb_up","uppercase","c"],["sb_bold","bold","c"]];
+const SBV={sb_size:"sb_sizev",sb_off:"sb_offv",sb_out:"sb_outv",sb_sh:"sb_shv",sb_wp:"sb_wpv"};
+function sbFill(c){SBT=c;const st=c.subtitles;
+ for(const [id,k,t] of SBF){const e=$(id);if(t==="c")e.checked=!!st[k];else if(id==="sb_font"){if(![...e.options].some(o=>o.value===st[k])){e.add(new Option(st[k],st[k]))}e.value=st[k]}else e.value=st[k];if(SBV[id])$(SBV[id]).textContent=st[k]}
+ $("sb_chip").className="chip2 "+(st.reviewed?"ok":"run");$("sb_chip").textContent=st.reviewed?"revisados":"sin revisar"}
+async function loadSubs(){let c,pr,fn;try{[c,pr,fn]=await Promise.all([api("/api/settings"),api("/api/presets"),api("/api/fonts")])}catch{return}
+ const f=$("sb_font");if(!f.options.length)fn.forEach(n=>f.add(new Option(n,n)));
+ $("sb_presets").innerHTML=Object.entries(pr).map(([k,p])=>`<button data-p="${k}"><span class="chip" style="background:${p.highlight};display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px"></span>${k}</button>`).join("");
+ document.querySelectorAll("#sb_presets button").forEach(b=>b.onclick=()=>sbPut({...pr[b.dataset.p].style}));
+ sbFill(c)}
+function sbCollect(){const o={};for(const [id,k,t] of SBF){const e=$(id);o[k]=t==="c"?e.checked:t==="n"?+e.value:e.value}return o}
+async function sbPut(st){if(sbBusy)return;sbBusy=true;try{await api("/api/settings",PUT({subtitles:{...st,reviewed:false}}));$("sb_msg").textContent="";loadSubs();pvRefresh(true);loadAuto()}catch(e){$("sb_msg").className="err";$("sb_msg").textContent=e.message}sbBusy=false}
+let sbTimer=null;
+SBF.forEach(([id,k,t])=>{$(id).addEventListener(t==="n"?"input":"change",()=>{if(SBV[id])$(SBV[id]).textContent=$(id).value;clearTimeout(sbTimer);sbTimer=setTimeout(()=>sbPut(sbCollect()),700)})});
+$("sb_ok").onclick=async()=>{try{await api("/api/settings",PUT({subtitles:{reviewed:true}}));$("sb_msg").className="mut";$("sb_msg").innerHTML='<span style="color:var(--ok)">✔ Guardado: se usará en los clips automáticos.</span>';loadSubs();loadAuto()}catch(e){$("sb_msg").className="err";$("sb_msg").textContent=e.message}};
+$("sb_reset").onclick=()=>sbPut({font:"DejaVu Sans",font_size:84,outline:9,shadow:0,bold:true,uppercase:true,offset_y:0,position:"lower_third",primary_color:"#FFFFFF",highlight_color:"#FFE600",outline_color:"#000000",max_words_per_line:3,enabled:true});
+loadSubs();
+/* ---- marcar la cámara ---- */
+const CAM={rect:null};
+function camDraw(){const r=$("cam_rect");if(!CAM.rect){r.style.display="none";return}r.style.display="block";
+ Object.assign(r.style,{left:CAM.rect.x*100+"%",top:CAM.rect.y*100+"%",width:CAM.rect.w*100+"%",height:CAM.rect.h*100+"%"})}
+function camSnap(){const i=$("cam_img");i.onerror=()=>{$("cam_msg").className="err";$("cam_msg").textContent="Aún no llega señal del directo."};i.onload=()=>{$("cam_msg").className="mut";$("cam_msg").textContent=CAM.rect?"Ajusta el rectángulo sobre tu cámara.":"Pulsa «Detectar» o dibuja la cámara arrastrando el rectángulo."};
+ i.src="/api/live/frame?w=960&_="+Date.now();if(!CAM.rect)CAM.rect={x:.02,y:.02,w:.28,h:.37};camDraw()}
+$("camtool").addEventListener("toggle",()=>{if($("camtool").open)camSnap()});
+$("cam_snap").onclick=camSnap;
+$("cam_det").onclick=async()=>{const m=$("cam_msg");m.className="mut";m.textContent="Buscando la cámara…";
+ try{const r=await api("/api/live/facecam/detect",{method:"POST"});if(r.facecam){CAM.rect=r.facecam;camDraw();m.textContent="Cámara detectada: ajusta el rectángulo si hace falta y pulsa «Guardar cámara»."}else{m.textContent="No se detectó una cámara superpuesta: dibújala a mano."}}catch(e){m.className="err";m.textContent=e.message}};
+$("cam_save").onclick=async()=>{const m=$("cam_msg");if(!CAM.rect)return;const q={};for(const k in CAM.rect)q[k]=+CAM.rect[k].toFixed(4);
+ try{await api("/api/settings",PUT({layout:{mode:"split",facecam:q}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Cámara guardada. Diseño «Cámara + gameplay» activado.</span>';loadSource();pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};
+$("cam_auto").onclick=async()=>{try{await api("/api/settings",PUT({layout:{facecam:null}}));$("cam_msg").textContent="Se buscará la cámara automáticamente en cada clip.";loadSource();pvRefresh(true)}catch(e){$("cam_msg").textContent=e.message}};
+(()=>{const r=$("cam_rect"),w=$("cam_wrap");let m=null;
+ r.addEventListener("pointerdown",e=>{const b=w.getBoundingClientRect();m={rs:e.target.tagName==="B",sx:e.clientX,sy:e.clientY,r0:{...CAM.rect},W:b.width,H:b.height};r.setPointerCapture(e.pointerId);e.preventDefault()});
+ r.addEventListener("pointermove",e=>{if(!m)return;const dx=(e.clientX-m.sx)/m.W,dy=(e.clientY-m.sy)/m.H,a=m.r0,c=(v,l,h)=>Math.min(Math.max(v,l),h);
+  if(m.rs){CAM.rect.w=c(a.w+dx,.06,1-a.x);CAM.rect.h=c(a.h+dy,.06,1-a.y)}else{CAM.rect.x=c(a.x+dx,0,1-a.w);CAM.rect.y=c(a.y+dy,0,1-a.h)}camDraw()});
+ const up=()=>{m=null};r.addEventListener("pointerup",up);r.addEventListener("pointercancel",up)})();
+/* ---- directo en vivo (HLS) ---- */
+let HLS=null,lvStart=0;
+function lvStop(){if(HLS){try{HLS.destroy()}catch{}HLS=null}const v=$("lv_vid");v.removeAttribute("src");try{v.load()}catch{}}
+function lvStart_(){
+ const v=$("lv_vid"),url="/api/live/stream.m3u8";if(HLS||!$("lv_on").checked)return;
+ if(window.Hls&&Hls.isSupported()){HLS=new Hls({liveSyncDurationCount:2,liveMaxLatencyDurationCount:6,maxBufferLength:20,manifestLoadingMaxRetry:8,levelLoadingMaxRetry:8,fragLoadingMaxRetry:8});
+  HLS.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{});$("lv_off").style.display="none"});
+  HLS.on(Hls.Events.ERROR,(e,d)=>{if(d.fatal){lvStop();$("lv_off").style.display="grid";$("lv_off").textContent="Reconectando con el directo…"}});
+  HLS.loadSource(url);HLS.attachMedia(v)}
+ else if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=url;v.play().catch(()=>{});$("lv_off").style.display="none"}
+ else{$("lv_off").textContent="Tu navegador no puede reproducir el directo en vivo."}}
+function lvTick(live){const view=$("v_live").classList.contains("on"),on=$("lv_on").checked&&view&&live;
+ if(on&&!HLS)lvStart_();if(!on&&HLS){lvStop();$("lv_off").style.display="grid";$("lv_off").textContent=live?"Directo en pausa (casilla desmarcada o pestaña oculta).":"Esperando señal del directo…"}
+ if(!live)$("lv_off").style.display="grid",$("lv_off").textContent="Esperando señal del directo…";
+ const b=$("lv_badge");b.className="chip2"+(on&&HLS?" live":"");b.textContent=on&&HLS?"EN VIVO":(live?"pausado":"sin señal");
+ const v=$("lv_vid");let lat="";if(HLS&&HLS.latency)lat="retraso ≈ "+Math.round(HLS.latency)+" s";$("lv_info").textContent=lat}
+$("lv_on").onchange=()=>lvTick(window._live);
+$("lv_mute").onclick=()=>{const v=$("lv_vid");v.muted=!v.muted;$("lv_mute").textContent=v.muted?"🔇 Activar sonido":"🔊 Silenciar"};
+$("lv_edge").onclick=()=>{const v=$("lv_vid");if(HLS&&HLS.liveSyncPosition)v.currentTime=HLS.liveSyncPosition;v.play().catch(()=>{})};
+setInterval(()=>lvTick(window._live),2000);
+
+/* ---- modo automático de clips ---- */
+const SENS={low:{energy:{spike_db:14},cadence:{words_per_second:5.5},cooldown_seconds:90},medium:{energy:{spike_db:10},cadence:{words_per_second:4.5},cooldown_seconds:40},high:{energy:{spike_db:7},cadence:{words_per_second:3.8},cooldown_seconds:20}};
+let AM=null,amBusy=false;
+const DET={kw:["keywords","enabled"],lg:["keywords","laughter"],en:["energy","enabled"],cd:["cadence","enabled"]};
+function destsOn(c){return Object.keys(DEST).filter(k=>c.publish[k]&&c.publish[k].enabled)}
+function amMode(c){if(!c.triggers.auto_enabled)return"off";return destsOn(c).some(k=>c.publish[k].mode==="auto")?"auto":"review"}
+async function loadAuto(){let c;try{c=await api("/api/settings")}catch{return}AM=c;const m=amMode(c),dests=destsOn(c);
+ document.querySelectorAll("#am_mode button").forEach(b=>{b.classList.toggle("sel",b.dataset.m===m);b.classList.toggle("off",b.dataset.m==="auto"&&!(c.publish.enabled&&dests.length))});
+ $("am_chip").className="chip2 "+(m==="off"?"":"ok");$("am_chip").textContent=m==="off"?"desactivado":m==="review"?"activo · a revisión":"activo · publica solo";
+ const pubTxt=c.publish.enabled&&dests.length?"Destinos activados: "+dests.map(k=>DEST[k].label).join(", ")+".":"No hay redes activadas (Ajustes → Publicación): los clips se guardan en Clips.";
+ $("am_help").innerHTML=m==="off"?"Tú decides cuándo crear cada clip (botón «Guardar últimos…» o tecla C). "+pubTxt:
+  m==="review"?"Se crean clips solos de los momentos destacados y quedan en <b>Publicación</b> esperando tu aprobación antes de subirse. "+pubTxt:
+  "Se crean clips solos y <b>se publican sin que los revises</b> (con los límites diarios configurados). "+pubTxt;
+ $("am_sens").value=c.triggers.sensitivity;$("am_dur").value=String(c.triggers.auto_clip_seconds);$("am_max").value=c.triggers.max_per_hour;$("am_cool").value=c.triggers.cooldown_seconds;
+ document.querySelectorAll("#am_det button").forEach(b=>{const [a,k]=DET[b.dataset.d];b.classList.toggle("sel",!!c.triggers[a][k]);b.classList.toggle("off",!c.triggers[a][k])});
+ const st=c.subtitles,okc=(b,t)=>(b?"✔ ":"○ ")+t,cam=c.layout.mode==="split";
+ $("am_check").innerHTML=[okc(window._live,"Fuente conectada y recibiendo señal"),okc(window._tr,"Transcripción lista"),okc(cam,"Diseño «Cámara + gameplay»"+(cam?(c.layout.facecam?" (cámara marcada)":" (cámara por autodetección)"):" — opcional")),okc(st.reviewed,"Subtítulos revisados")].map((x,i)=>`<div style="color:${x[0]==="✔"?"var(--ok)":"var(--mut)"}">${x}</div>`).join("");
+ $("am_kw").textContent="Palabras clave: "+c.triggers.keywords.phrases.join(" · ")+" (se editan en Ajustes → Disparadores)"}
+async function amSave(patch){if(amBusy)return;amBusy=true;try{await api("/api/settings",PUT(patch))}catch(e){alert(e.message)}amBusy=false;loadAuto()}
+document.querySelectorAll("#am_mode button").forEach(b=>b.onclick=async()=>{const m=b.dataset.m;if(!AM)return;const dests=destsOn(AM);
+ if(m!=="off"&&!AM.subtitles.reviewed&&!confirm("Aún no has marcado los subtítulos como revisados (tarjeta «Subtítulos»). Los clips automáticos usarán el estilo actual.\n\n¿Activar el modo automático igualmente?"))return;
+ if(m==="auto"){if(!(AM.publish.enabled&&dests.length)){alert("Para publicar solo, activa antes la publicación y al menos una red en Ajustes → Publicación.");return}
+  if(!confirm("Los clips automáticos se publicarán en "+dests.map(k=>DEST[k].label).join(", ")+" SIN que los revises. Revisa los derechos de lo que emites y las normas de cada plataforma.\n\n¿Activar el modo automático total?"))return}
+ const pub={};dests.forEach(k=>pub[k]={mode:m==="auto"?"auto":"review"});
+ amSave({triggers:{auto_enabled:m!=="off"},publish:pub})});
+$("am_sens").onchange=()=>amSave({triggers:{sensitivity:$("am_sens").value,...SENS[$("am_sens").value]}});
+$("am_dur").onchange=()=>amSave({triggers:{auto_clip_seconds:+$("am_dur").value}});
+$("am_max").onchange=()=>amSave({triggers:{max_per_hour:+$("am_max").value||20}});
+$("am_cool").onchange=()=>amSave({triggers:{cooldown_seconds:+$("am_cool").value||40}});
+document.querySelectorAll("#am_det button").forEach(b=>b.onclick=()=>{const [a,k]=DET[b.dataset.d];amSave({triggers:{[a]:{[k]:!AM.triggers[a][k]}}})});
+$("am_all").onclick=()=>show("clips");
+async function amRecent(){let c;try{c=await api("/api/clips")}catch{return}
+ const auto=c.filter(x=>["keyword","laughter","energy","cadence"].includes(x.reason)).slice(0,6);const R={keyword:"palabra clave",laughter:"risa",energy:"volumen",cadence:"habla rápida"};
+ $("am_recent").innerHTML=auto.map(x=>`<div class="it"><video preload="metadata" muted playsinline controls src="/clips/${encodeURIComponent(x.name)}?v=${Math.floor(x.mtime)}#t=0.1"></video>${esc(R[x.reason]||x.reason)}${x.detail?" · "+esc(x.detail).slice(0,40):""}</div>`).join("")||'<span class="mut">Todavía no hay clips automáticos.</span>'}
+setInterval(()=>{if($("v_live").classList.contains("on"))amRecent()},10000);
+loadAuto();amRecent();
 show((location.hash||"#live").slice(1)in{live:1,videos:1,clips:1,pub:1,set:1}?(location.hash||"#live").slice(1):"live");
 
 status();clips();pubs();setInterval(pubs,3000);setInterval(status,1500);setInterval(clips,4000);
-</script><script src="/static/editor.js"></script></body></html>
+</script><script src="/static/hls.min.js"></script><script src="/static/editor.js"></script></body></html>

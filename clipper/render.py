@@ -54,6 +54,24 @@ def _cam_crop(info: VideoInfo, rect: RectCfg, face: tuple[float, float] | None, 
     return _even(px), _even(py), pw, ph
 
 
+def _center_crop(info: VideoInfo, rect: RectCfg | None, out_w: int, out_h: int, focus_x: float | None = None) -> tuple[int, int, int, int]:
+    """Recorte (cw, ch, x, y) de proporción out_w:out_h centrado en el fotograma. Si se conoce la cámara superpuesta, el recorte
+    se desplaza lo justo para no incluirla (en el resultado la cámara ya va arriba: no debe aparecer dos veces)."""
+    aspect = out_w / out_h
+    if info.height * aspect <= info.width:
+        cw, ch = _even(info.height * aspect), _even(info.height)
+    else:
+        cw = _even(info.width)
+        ch = min(info.height, _even(cw / aspect))
+    cx = focus_x * info.width if focus_x is not None else info.width / 2
+    if focus_x is None and rect is not None:
+        cam0, cam1 = rect.x * info.width, (rect.x + rect.w) * info.width
+        if cx - cw / 2 < cam1 and cx + cw / 2 > cam0:                 # el recorte pisaría la cámara
+            cx = cam1 + cw / 2 if (cam0 + cam1) / 2 < info.width / 2 else cam0 - cw / 2
+    x = min(max(cx - cw / 2, 0), info.width - cw)
+    return cw, ch, _even(x), _even((info.height - ch) / 2)
+
+
 def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[str], static: bool = False,
                 cache: dict | None = None) -> tuple[str, int | None, dict]:
     """Devuelve (filtergraph terminado en [v0], y de la unión cámara/gameplay o None, info de lo decidido)."""
@@ -81,7 +99,10 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         face = cache["face"]
         px, py, pw, ph = _cam_crop(info, rect, face, W, cam_h)
         cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={W}:{cam_h}:flags=lanczos[cam]"
-        if spec.gameplay == "cover":
+        if spec.gameplay == "center":
+            cw, ch, gx, gy = _center_crop(info, rect, W, game_h, spec.gameplay_x)
+            game = f"[s2]crop={cw}:{ch}:{gx}:{gy},scale={W}:{game_h}:flags=lanczos[game]"
+        elif spec.gameplay == "cover":
             if "game_path" not in cache:
                 cache["game_path"] = analyze(input_args, info, cfg, out_w=W, out_h=game_h, ignore=rect, faces=False)
             path = cache["game_path"]

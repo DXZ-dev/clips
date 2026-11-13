@@ -42,7 +42,7 @@ def main(argv=None) -> int:
     f.add_argument("-o", "--out")
     f.add_argument("--words")
     f.add_argument("-s", "--last-seconds", type=float)
-    f.add_argument("--layout", choices=["auto", "split", "fit"], help="auto | split (cámara arriba + gameplay) | fit")
+    f.add_argument("--layout", choices=["auto", "split", "fit"], help="auto | split (cámara arriba + gameplay centrado) | fit")
     f.add_argument("--facecam", help="x,y,w,h normalizados (0..1) de la cámara; sin él se autodetecta")
     a = ap.parse_args(argv)
 

@@ -162,7 +162,7 @@ def test_detect_facecam_on_synthetic_stream(tmp_path):
     vid = tmp_path / "cam.mp4"
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=25:d=10", "-loop", "1",
                     "-framerate", "25", "-i", str(face), "-filter_complex",
-                    "[1]crop=512:384:0:40,scale=320:240[c];[0][c]overlay=W-w:H-h", "-t", "10", "-c:v", "libx264",
+                    "[1]crop=330:248:85:20,scale=320:240[c];[0][c]overlay=W-w:H-h", "-t", "10", "-c:v", "libx264",
                     "-preset", "ultrafast", str(vid)], check=True)
     r = detect_facecam(["-i", str(vid)], probe(str(vid)), cfg)
     assert r is not None

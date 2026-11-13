@@ -16,10 +16,12 @@ from .buffer import BufferReader, RollingBuffer
 from .config import Config
 from .detect.transcriber import LiveTranscriber, WordStore
 from .detect.triggers import CadenceDetector, EnergyDetector, KeywordMatcher, Trigger
+from .detect.visual import FPS as VIS_FPS, VisualDetector
 from .ffutil import cuda_available, pick_encoder, resolve_device
 from .pipeline import clip_from_range
 from .publish.base import TokenStore
-from .vod import VideoManager
+from . import updater
+from .vod import VideoManager, make_moment
 from .publish.queue import PublishQueue
 from .subtitles import Word
 
@@ -60,7 +62,13 @@ class Engine:
         self._seen: set[str] = set()
         self._last_end = -1.0
         self._last_auto = -1e9
+        self._auto_times: deque[float] = deque(maxlen=200)     # instantes (reloj) de los clips automáticos aceptados
         self.energy, self.cadence, self.keywords = EnergyDetector(cfg), CadenceDetector(cfg), KeywordMatcher(cfg)
+        self.visual = VisualDetector(cfg, cam=cfg.layout.facecam)
+        self._pending: list[Trigger] = []                     # disparos recientes que aún se están puntuando como un solo momento
+        self._pending_since = 0.0
+        self._plock = threading.Lock()
+        self._vh: int | None = None
         self.transcriber: LiveTranscriber | None = None
         self.transcriber_error: str | None = None
         self.transcriber_ready = False
@@ -72,7 +80,7 @@ class Engine:
         self.buffer.start()
         self.publisher.start()
         self.videos.start()
-        for fn in (self._feeder, self._transcribe_loop, self._worker):
+        for fn in (self._feeder, self._transcribe_loop, self._worker, self._update_loop, self._decider):
             t = threading.Thread(target=fn, name=fn.__name__, daemon=True)
             t.start()
             self._threads.append(t)
@@ -104,6 +112,8 @@ class Engine:
         changed = apply_update(self.cfg, patch)
         if "triggers" in changed:
             self.keywords = KeywordMatcher(self.cfg)
+        if "layout" in changed:
+            self.visual.cam = self.cfg.layout.facecam
         if "transcribe" in changed or "compute" in changed:
             if self.cfg.transcribe.enabled:
                 if self.transcriber is None:
@@ -176,6 +186,9 @@ class Engine:
                 words = [EditWord(start=max(0.0, w.start - seg0), end=max(0.0, w.end - seg0), text=w.text)
                          for w in self.store.between(t0, t1)]
                 ts = max(0.0, min(t0 - seg0, sdur - 1.0))
+                if not words and self.cfg.subtitles.enabled:       # sin transcripción aún: texto de ejemplo para poder ajustar el estilo
+                    demo = "Así se verán tus subtítulos en los clips del directo".split()
+                    words = [EditWord(start=ts + 0.4 + i * 0.45, end=ts + 0.4 + (i + 1) * 0.45, text=w) for i, w in enumerate(demo)]
                 spec = default_spec(self.cfg, words, ts, min(max(t1 - seg0, ts + 1.0), sdur))
                 render_spec(self.cfg, src, spec, out, preview=True)
                 return out
@@ -184,14 +197,52 @@ class Engine:
         finally:
             self.render_lock.release()
 
+    def _has_cam(self) -> bool:
+        return self.cfg.layout.facecam is not None or self.cfg.layout.mode == "split"
+
     def _auto(self, tr: Trigger) -> None:
-        tc = self.cfg.triggers
-        self.event(tr.kind, tr.detail, at=round(tr.t, 1))
-        if not tc.auto_enabled or tr.t - self._last_auto < tc.cooldown_seconds:
+        """Recoge un disparo. No crea el clip al momento: espera unos segundos a que lleguen más señales del mismo momento
+        (voz + volumen + movimiento + reacción…) y decide por puntuación (ver _flush_pending)."""
+        if tr.kind not in ("action", "reaction"):                # esas dos son muy frecuentes: solo cuentan, no se anuncian
+            self.event(tr.kind, tr.detail, at=round(tr.t, 1))
+        if not self.cfg.triggers.auto_enabled:
             return
-        self._last_auto = tr.t
-        t1 = tr.t + tc.post_roll_seconds
-        self._submit(ClipJob(tr.kind, tr.detail, t1 - tc.auto_clip_seconds, t1))
+        with self._plock:
+            if not self._pending:
+                self._pending_since = time.time()
+            self._pending.append(tr)
+
+    def _decider(self) -> None:
+        while not self._stop.wait(1.0):
+            try:
+                self._flush_pending()
+            except Exception:  # noqa: BLE001
+                log.exception("decisor de clips automáticos")
+
+    def _flush_pending(self, force: bool = False) -> None:
+        tc = self.cfg.triggers
+        with self._plock:
+            if not self._pending or (not force and time.time() - self._pending_since < 6.0):
+                return
+            trigs, self._pending = self._pending, []
+        m = make_moment(trigs, 1.0 if self._has_cam() else 1.5)          # sin cámara, la acción en pantalla pesa más
+        if self.visual.bonus(m.t):
+            m.score = round(m.score * 1.15, 2)                            # hay personajes en pantalla
+        why = f"{'+'.join(m.kinds)}: {m.detail}".strip(": ")
+        if m.score < tc.min_score:
+            self.event("system", f"momento descartado ({why}): puntuación {m.score} < {tc.min_score}")
+            return
+        if m.t - self._last_auto < tc.cooldown_seconds:
+            return
+        now = time.time()
+        if sum(1 for x in self._auto_times if now - x < 3600) >= tc.max_per_hour:
+            self.event("system", f"límite de {tc.max_per_hour} clips automáticos por hora alcanzado: se omite este")
+            return
+        self._auto_times.append(now)
+        self._last_auto = m.t
+        t1 = m.t + tc.post_roll_seconds
+        self.event("clip", f"momento destacado (puntuación {m.score}): {why}")
+        self._submit(ClipJob(m.kinds[0], f"{m.detail} · puntuación {m.score}".strip(" ·"), t1 - tc.auto_clip_seconds, t1))
 
     def _submit(self, job: ClipJob) -> None:
         self.jobs[job.id] = job
@@ -225,6 +276,17 @@ class Engine:
                     continue
                 for tr in self.energy.feed(audio, sg.start):
                     self._auto(tr)
+                if self.cfg.triggers.visual.enabled:
+                    try:
+                        if self._vh is None:
+                            from .ffutil import probe
+                            i = probe(str(sg.path))
+                            self._vh = max(2, int(round(640 * i.height / i.width)) // 2 * 2)
+                        from .tracking import read_frames
+                        for tr in self.visual.feed(list(read_frames(["-i", str(sg.path)], VIS_FPS, 640, self._vh)), sg.start):
+                            self._auto(tr)
+                    except Exception:  # noqa: BLE001
+                        log.exception("análisis visual del segmento")
                 if self.transcriber:
                     self._audio_q.put((audio, sg.start))
             if len(self._seen) > 400:
@@ -259,6 +321,24 @@ class Engine:
             except Exception as e:  # noqa: BLE001
                 self.event("error", f"transcripción: {e}")
                 log.exception("fallo transcribiendo")
+
+    def _update_loop(self) -> None:
+        """Cada 6 h (y poco después de arrancar) pregunta a GitHub si hay versión nueva. Solo avisa: nunca instala solo."""
+        if self._stop.wait(45):
+            return
+        notified = None
+        while not self._stop.is_set():
+            if self.cfg.update.auto_check:
+                try:
+                    st = updater.check()
+                    lat = st.get("latest") or {}
+                    if st.get("update_available") and lat.get("sha") != notified:
+                        notified = lat.get("sha")
+                        self.event("system", f"Hay una actualización disponible: {lat.get('short', '')} {lat.get('subject', '')} (Ajustes → Actualizaciones)")
+                except Exception:  # noqa: BLE001
+                    log.exception("comprobación de actualizaciones")
+            if self._stop.wait(6 * 3600):
+                return
 
     def _worker(self) -> None:
         while not self._stop.is_set():
@@ -323,7 +403,10 @@ class Engine:
             "events": list(self.events)[:30],
             "videos_active": sum(1 for j in self.videos.jobs.values() if j.status not in ("done", "error", "cancelled")),
             "auto_enabled": self.cfg.triggers.auto_enabled,
+            "auto": {"enabled": self.cfg.triggers.auto_enabled, "max_per_hour": self.cfg.triggers.max_per_hour,
+                     "last_hour": sum(1 for x in self._auto_times if time.time() - x < 3600)},
             "auth": bool(self.cfg.server.password_hash),
+            "update": updater.summary(),
             "publish": {"enabled": self.cfg.publish.enabled, "dry_run": self.cfg.publish.dry_run,
                         "pending_review": sum(1 for i in self.publisher.list() if i["status"] == "pending_review")},
             "durations": self.cfg.clip.duration_options, "default_seconds": self.cfg.clip.default_seconds,

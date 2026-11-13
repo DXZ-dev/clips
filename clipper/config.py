@@ -74,6 +74,8 @@ class ReframeCfg(BaseModel):
     detector: Literal["auto", "mediapipe", "haar", "none"] = "auto"
     mediapipe_model: str = "./models/blaze_face_short_range.tflite"
     analysis_fps: int = 6
+    track_people: bool = True            # sin rostros: seguir a personas/personajes en pantalla (detector HOG integrado, sin descargas)
+    center_bias: float = Field(0.6, ge=0, le=1)   # 0 = sigue el movimiento donde sea; 1 = prefiere mucho el centro (punto de vista céntrico)
     analysis_width: int = 480
     smoothing: SmoothingCfg = SmoothingCfg()
     speaker: SpeakerCfg = SpeakerCfg()
@@ -97,8 +99,9 @@ class LayoutCfg(BaseModel):
     mode: Literal["auto", "split", "fit"] = "auto"   # auto = recorte que sigue al hablante/acción
     facecam: RectCfg | None = None                    # None => se autodetecta (mediapipe) en cada clip
     facecam_position: Literal["top", "bottom"] = "top"
-    facecam_height_pct: int = Field(38, ge=15, le=60)  # % de la altura vertical que ocupa la cámara
-    gameplay: Literal["cover", "contain"] = "cover"   # cover = recorta y sigue la acción; contain = completo + fondo desenfocado
+    facecam_height_pct: int = Field(34, ge=15, le=60)  # % de la altura vertical que ocupa la cámara
+    gameplay: Literal["center", "cover", "contain"] = "center"   # center = recorta el centro del gameplay (llena el ancho); cover = recorta siguiendo la acción; contain = completo + fondo desenfocado
+    gameplay_x: float | None = Field(None, ge=0, le=1)   # centro horizontal del recorte (0..1); None = centro, esquivando la cámara
     blur_strength: int = Field(28, ge=4, le=60)
 
 
@@ -115,7 +118,11 @@ class SubtitlesCfg(BaseModel):
     primary_color: str = "#FFFFFF"
     highlight_color: str = "#FFE600"
     outline_color: str = "#000000"
-    outline: int = 9
+    outline: int = Field(9, ge=0, le=20)
+    bold: bool = True
+    shadow: int = Field(0, ge=0, le=12)
+    offset_y: int = Field(0, ge=-600, le=600)     # desplaza el texto en vertical (px; positivo = hacia arriba)
+    reviewed: bool = False                        # el usuario ya revisó el estilo (lo pide el modo automático)
     position: Literal["center", "lower_third", "bottom", "seam"] = "lower_third"   # seam = en la unión cámara/gameplay
     max_words_per_line: int = 3
     max_lines: int = 2
@@ -181,6 +188,10 @@ class CadenceCfg(BaseModel):
     window_seconds: float = 4.0
 
 
+class VisualCfg(BaseModel):
+    enabled: bool = True                 # puntuar también por movimiento en pantalla, reacción del streamer y personajes
+
+
 class KeywordsCfg(BaseModel):
     enabled: bool = True
     laughter: bool = True                # "jajaja" en la transcripción cuenta como risa
@@ -189,12 +200,16 @@ class KeywordsCfg(BaseModel):
 
 class TriggersCfg(BaseModel):
     auto_enabled: bool = True             # en directo: sacar clips solos de los momentos destacados
+    sensitivity: Literal["low", "medium", "high"] = "medium"   # solo para mostrarla en el panel; los umbrales reales están abajo
+    max_per_hour: int = Field(20, ge=1, le=120)                # tope de clips automáticos por hora
     cooldown_seconds: float = 40.0
+    min_score: float = Field(2.5, ge=0.5, le=10)     # puntuación mínima del momento para crear un clip automático
     auto_clip_seconds: int = 30
     post_roll_seconds: float = 8.0       # cuánto después del disparo se sigue grabando
     energy: EnergyCfg = EnergyCfg()
     cadence: CadenceCfg = CadenceCfg()
     keywords: KeywordsCfg = KeywordsCfg()
+    visual: VisualCfg = VisualCfg()
 
 
 Mode = Literal["review", "auto"]   # review = el clip espera tu aprobación en el panel; auto = se sube solo
@@ -289,8 +304,13 @@ class VodCfg(BaseModel):
     min_gap_seconds: float = 45.0                # separación mínima entre clips
     merge_window_seconds: float = 20.0           # disparos más cercanos que esto cuentan como un único momento
     use_transcription: bool = True               # false = solo picos de volumen (mucho más rápido)
+    use_visual: bool = True                      # puntuar también por movimiento, reacción del streamer y personajes
     max_upload_gb: float = Field(20.0, gt=0)
     cookies_file: str = ""                       # cookies.txt (formato Netscape) para yt-dlp; ruta relativa a la carpeta de datos
+
+
+class UpdateCfg(BaseModel):
+    auto_check: bool = True              # consulta GitHub cada pocas horas y avisa si hay una versión nueva (no instala nada solo)
 
 
 class ServerCfg(BaseModel):
@@ -306,6 +326,7 @@ class Config(BaseModel):
     triggers: TriggersCfg = TriggersCfg()
     ai: AiCfg = AiCfg()
     vod: VodCfg = VodCfg()
+    update: UpdateCfg = UpdateCfg()
     publish: PublishCfg = PublishCfg()
     server: ServerCfg = ServerCfg()
     source: SourceCfg = SourceCfg()

@@ -30,7 +30,7 @@ from .spec import EditWord, default_spec
 from .subtitles import Word
 
 log = logging.getLogger("clipper.vod")
-WEIGHT = {"keyword": 3.0, "laughter": 2.5, "energy": 2.0, "cadence": 1.5}
+WEIGHT = {"keyword": 3.0, "laughter": 2.5, "reaction": 2.2, "energy": 2.0, "action": 1.8, "cadence": 1.5}
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".ts", ".flv", ".wmv"}
 
 
@@ -67,11 +67,22 @@ def iter_audio(src: str, chunk_s: float = 30.0) -> Iterator[tuple[float, np.ndar
         p.wait()
 
 
-def _weight(tr: Trigger) -> float:
-    return WEIGHT.get(tr.kind, 1.0) * tr.strength
+def _weight(tr: Trigger, action_boost: float = 1.0) -> float:
+    return WEIGHT.get(tr.kind, 1.0) * tr.strength * (action_boost if tr.kind == "action" else 1.0)
 
 
-def select_moments(triggers: list[Trigger], max_clips: int, min_gap: float, merge_window: float) -> list[Moment]:
+def make_moment(c: list[Trigger], action_boost: float = 1.0, has_characters: bool = False) -> Moment:
+    """Puntúa un grupo de disparos cercanos: el mejor + 0,6·resto. Sin cámara la acción en pantalla pesa más (`action_boost`);
+    si hay personajes en pantalla el momento sube un 15 %."""
+    ws = sorted((_weight(x, action_boost) for x in c), reverse=True)
+    best = max(c, key=lambda x: _weight(x, action_boost))
+    details = list(dict.fromkeys(x.detail for x in c if x.detail))
+    score = (ws[0] + 0.6 * sum(ws[1:])) * (1.15 if has_characters else 1.0)
+    return Moment(best.t, round(score, 2), sorted({x.kind for x in c}, key=lambda k: -WEIGHT.get(k, 1.0)), "; ".join(details[:3]))
+
+
+def select_moments(triggers: list[Trigger], max_clips: int, min_gap: float, merge_window: float, *, action_boost: float = 1.0,
+                   characters=None, min_score: float = 0.0) -> list[Moment]:
     """Agrupa disparos cercanos en momentos, los puntúa (el mejor + 0,6·resto) y elige los mejores separados `min_gap`."""
     clusters: list[list[Trigger]] = []
     for tr in sorted(triggers, key=lambda x: x.t):
@@ -81,10 +92,9 @@ def select_moments(triggers: list[Trigger], max_clips: int, min_gap: float, merg
             clusters.append([tr])
     moments = []
     for c in clusters:
-        ws = sorted((_weight(x) for x in c), reverse=True)
-        best = max(c, key=_weight)
-        details = list(dict.fromkeys(x.detail for x in c if x.detail))
-        moments.append(Moment(best.t, round(ws[0] + 0.6 * sum(ws[1:]), 2), sorted({x.kind for x in c}, key=lambda k: -WEIGHT.get(k, 1.0)), "; ".join(details[:3])))   # el motivo principal primero
+        m = make_moment(c, action_boost, bool(characters and characters(max(c, key=_weight).t)))
+        if m.score >= min_score:
+            moments.append(m)   # el motivo principal primero
     chosen: list[Moment] = []
     for m in sorted(moments, key=lambda m: -m.score):
         if all(abs(m.t - x.t) >= min_gap for x in chosen):
@@ -111,8 +121,12 @@ def clip_window(m: Moment, duration: float, seconds: float, post_roll: float, wo
 
 
 def find_highlights(cfg: Config, src: str, use_transcription: bool = True, progress: Callable[[float, str], None] = lambda p, m: None,
-                    cancelled: Callable[[], bool] = lambda: False, transcriber_factory=None) -> tuple[list[Trigger], list[Word], float]:
-    """Recorre el vídeo y devuelve (todos los disparos, todas las palabras, duración)."""
+                    cancelled: Callable[[], bool] = lambda: False, transcriber_factory=None, use_visual: bool | None = None,
+                    detectors_out: dict | None = None) -> tuple[list[Trigger], list[Word], float]:
+    """Recorre el vídeo y devuelve (todos los disparos, todas las palabras, duración). Con `use_visual` hace una segunda pasada
+    por las imágenes (movimiento, reacción del streamer, personajes); el detector visual queda en detectors_out["visual"]."""
+    use_visual = (cfg.vod.use_visual and cfg.triggers.visual.enabled) if use_visual is None else use_visual
+    a_share = 0.6 if use_visual else 1.0
     dur = ffduration(src) or 1.0
     energy, cadence, keywords = EnergyDetector(cfg), CadenceDetector(cfg), KeywordMatcher(cfg)
     trigs: list[Trigger] = []
@@ -134,9 +148,26 @@ def find_highlights(cfg: Config, src: str, use_transcription: bool = True, progr
         if tr:
             tr.feed(a, t0)
         done = min(1.0, (t0 + len(a) / SR) / dur)
-        progress(done, f"Analizando el audio… {int(done * 100)} %")
+        progress(done * a_share, f"Analizando el audio… {int(done * 100)} %")
     if tr:
         tr.flush()
+    if use_visual:
+        from .detect.visual import FPS, VisualDetector
+        from .ffutil import probe
+        from .tracking import read_frames
+        info = probe(src)
+        vis = VisualDetector(cfg, cam=cfg.layout.facecam)
+        h = max(2, int(round(640 * info.height / info.width)) // 2 * 2)
+        for i, bgr in enumerate(read_frames(["-i", src], FPS, 640, h)):
+            if cancelled():
+                raise Cancelled()
+            trigs.extend(vis.feed([bgr], i / FPS))
+            if i % 20 == 0:
+                done = min(1.0, (i / FPS) / dur)
+                progress(a_share + (1 - a_share) * done, f"Analizando las imágenes… {int(done * 100)} %")
+        if detectors_out is not None:
+            detectors_out["visual"] = vis
+    progress(1.0, "Análisis completado")
     return trigs, words, dur
 
 
@@ -329,11 +360,15 @@ class VideoManager:
 
         use_tr = bool(opts.get("transcribe", cfg.vod.use_transcription))
         job.status = "analyzing"
+        det: dict = {}
         trigs, words, dur = find_highlights(cfg, str(shared), use_tr, self._progress(job, 0.1, 0.7),
-                                            lambda: job.id in self._cancel, self.transcriber_factory)
+                                            lambda: job.id in self._cancel, self.transcriber_factory, detectors_out=det)
         max_clips = int(opts.get("max_clips") or cfg.vod.max_clips)
         seconds = int(opts.get("clip_seconds") or cfg.vod.clip_seconds or cfg.triggers.auto_clip_seconds)
-        moments = select_moments(trigs, max_clips, cfg.vod.min_gap_seconds, cfg.vod.merge_window_seconds)
+        has_cam = cfg.layout.facecam is not None or cfg.layout.mode == "split"
+        vis = det.get("visual")
+        moments = select_moments(trigs, max_clips, cfg.vod.min_gap_seconds, cfg.vod.merge_window_seconds,
+                                 action_boost=1.0 if has_cam else 1.5, characters=(vis.bonus if vis else None))
         if not moments:
             job.status, job.progress = "done", 1.0
             job.message = "No se detectaron momentos destacados (prueba a activar la transcripción o a bajar el umbral de energía en Ajustes)."

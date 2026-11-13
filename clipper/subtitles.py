@@ -81,7 +81,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{cfg.font},{cfg.font_size},{_color(cfg.primary_color)},{_color(cfg.primary_color)},{_color(cfg.outline_color)},&H64000000&,-1,0,0,0,100,100,0,0,1,{cfg.outline},0,{align},60,60,{margin_v},1
+Style: Default,{cfg.font},{cfg.font_size},{_color(cfg.primary_color)},{_color(cfg.primary_color)},{_color(cfg.outline_color)},&H64000000&,{-1 if cfg.bold else 0},0,0,0,100,100,0,0,1,{cfg.outline},{cfg.shadow},{align},60,60,{max(0, margin_v + cfg.offset_y)},1
 
 Style: Hook,{cfg.font},{int(cfg.font_size * 0.72)},&H00000000&,&H00000000&,&H00FFFFFF&,&H00FFFFFF&,-1,0,0,0,100,100,0,0,3,18,0,8,70,70,{int(height * 0.07)},1
 Style: Mark,{cfg.font},{int(cfg.font_size * 0.42)},&H00FFFFFF&,&H00FFFFFF&,&H00000000&,&H00000000&,-1,0,0,0,100,100,0,0,1,3,0,{{MARKALIGN}},40,40,{int(height * 0.035)},1
@@ -108,8 +108,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 elif j + 1 < len(page):
                     parts.append(" ")
             text = "".join(parts).replace(" \\N ", "\\N").replace(" \\N", "\\N")
-            if cfg.position == "seam" and seam_y is not None:
-                text = f"{{\\an5\\pos({width // 2},{seam_y})}}" + text
+            anchor = seam_y if (cfg.position == "seam" and seam_y is not None) else (height // 2 if cfg.position == "center" else None)
+            if anchor is not None:                       # centro / unión cámara-gameplay: posición absoluta (+ desplazamiento vertical)
+                text = f"{{\\an5\\pos({width // 2},{anchor - cfg.offset_y})}}" + text
             events.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{text}")
     mark_align = {"tl": 7, "tr": 9, "bl": 1, "br": 3}.get((watermark or ("", "br"))[1], 9)
     hdr = hdr.replace("{MARKALIGN}", str(mark_align))

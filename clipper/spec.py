@@ -40,8 +40,9 @@ class EditSpec(BaseModel):
     layout: Literal["auto", "split", "fit"] = "auto"
     facecam: RectCfg | None = None                   # None = autodetectar si layout=split
     facecam_position: Literal["top", "bottom"] = "top"
-    facecam_height_pct: int = Field(38, ge=15, le=60)
-    gameplay: Literal["cover", "contain"] = "contain"
+    facecam_height_pct: int = Field(34, ge=15, le=60)
+    gameplay: Literal["center", "cover", "contain"] = "center"
+    gameplay_x: float | None = Field(None, ge=0, le=1)
     subtitles: SubStyle = SubStyle()
     hook: Hook = Hook()
     watermark: Watermark = Watermark()
@@ -60,4 +61,4 @@ def default_spec(cfg: Config, words: list[EditWord], trim_start: float, trim_end
     lc = cfg.layout
     return EditSpec(trim_start=trim_start, trim_end=trim_end, layout=lc.mode, facecam=lc.facecam,
                     facecam_position=lc.facecam_position, facecam_height_pct=lc.facecam_height_pct,
-                    gameplay=lc.gameplay, subtitles=SubStyle(enabled=cfg.subtitles.enabled), words=words)
+                    gameplay=lc.gameplay, gameplay_x=lc.gameplay_x, subtitles=SubStyle(enabled=cfg.subtitles.enabled), words=words)

@@ -30,10 +30,11 @@ def _assign(dst: BaseModel, src: BaseModel) -> None:
     """Copia src sobre dst EN SITIO: los detectores guardan referencias a los sub-objetos de la config."""
     for name in type(src).model_fields:
         v = getattr(src, name)
-        if isinstance(v, BaseModel):
-            _assign(getattr(dst, name), v)
+        cur = getattr(dst, name)
+        if isinstance(v, BaseModel) and isinstance(cur, BaseModel) and type(v) is type(cur):
+            _assign(cur, v)                      # en sitio: los detectores guardan referencias a estos sub-objetos
         else:
-            setattr(dst, name, v)
+            setattr(dst, name, v)                # valores simples, o un sub-objeto opcional que pasa de None a un objeto (o al revés)
 
 
 def _write_private(path, data, dump) -> None:

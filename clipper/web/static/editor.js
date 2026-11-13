@@ -45,7 +45,9 @@
         <div class="pane on" id="p_lay">
           <div class="seg" id="ed_layout"><button data-v="auto">Automático</button><button data-v="split">Cámara + gameplay</button><button data-v="fit">Completo (fondo difuminado)</button></div>
           <div id="ed_splitopts"><div class="row2"><label>Cámara en <select id="ed_cpos"><option value="top">Arriba</option><option value="bottom">Abajo</option></select></label>
-            <label>Gameplay <select id="ed_gp"><option value="contain">Completo</option><option value="cover">Recortado (sigue la acción)</option></select></label></div>
+            <label>Gameplay <select id="ed_gp"><option value="center">Centro (recortado, llena el ancho)</option><option value="cover">Recortado (sigue la acción)</option><option value="contain">Completo (con bandas)</option></select></label></div>
+            <label>Posición horizontal del recorte: <span id="ed_gxv">auto</span> <input id="ed_gx" type="range" min="0" max="100" value="50" style="width:100%;margin:0"></label>
+            <label class="chk"><input type="checkbox" id="ed_gxa" checked> Automática (centro, esquivando la cámara)</label>
             <label>Altura de la cámara: <span id="ed_chv">38</span>% <input id="ed_ch" type="range" min="15" max="60" value="38" style="width:100%;margin:0"></label>
             <div class="tools"><button id="ed_det">🔍 Autodetectar cámara</button><button id="ed_draw">Dibujar a mano</button><button id="ed_clr">Auto</button></div>
             <div class="mut" style="font-size:12px">Arrastra el rectángulo amarillo sobre la fuente para encuadrar la cámara. «Auto» la busca en cada clip.</div></div>
@@ -81,6 +83,8 @@
     }));
     document.querySelectorAll('#ed_layout button').forEach((b) => (b.onclick = () => { E.layout = b.dataset.v; syncLayout(); if (E.layout === 'split' && !E.rect) detect(); }));
     T('#ed_ch').oninput = () => (T('#ed_chv').textContent = T('#ed_ch').value);
+    T('#ed_gx').oninput = () => { T('#ed_gxa').checked = false; T('#ed_gxv').textContent = T('#ed_gx').value + ' %'; };
+    T('#ed_gxa').onchange = () => (T('#ed_gxv').textContent = T('#ed_gxa').checked ? 'auto' : T('#ed_gx').value + ' %');
     const v = T('#ed_src');
     T('#ed_play').onclick = () => { if (v.paused) { if (v.currentTime >= teVal() - 0.05 || v.currentTime < tsVal()) v.currentTime = tsVal(); v.play(); } else v.pause(); };
     v.onplay = () => (T('#ed_play').textContent = '⏸'); v.onpause = () => (T('#ed_play').textContent = '▶');
@@ -161,6 +165,7 @@
     return {
       trim_start: tsVal(), trim_end: teVal(), layout: E.layout, facecam: E.rect,
       facecam_position: $e('#ed_cpos').value, facecam_height_pct: num('#ed_ch'), gameplay: $e('#ed_gp').value,
+      gameplay_x: $e('#ed_gxa').checked ? null : num('#ed_gx') / 100,
       subtitles: { enabled: $e('#ed_son').checked, preset: E.preset, highlight_color: E.hl, primary_color: null,
         font_size: E.size, position: $e('#ed_pos').value || null, uppercase: $e('#ed_up').value === '' ? null : $e('#ed_up').value === '1' },
       hook: { text: $e('#ed_hk').value, seconds: num('#ed_hks') || 3 },
@@ -207,7 +212,7 @@
       const v = $e('#ed_src'); v.src = `/api/clips/${encodeURIComponent(name)}/source`;
       $e('#ed_seek').max = d.source.duration; $e('#ed_prev').removeAttribute('src'); $e('#ed_prev').load(); msg('');
       $e('#ed_ts').value = s.trim_start.toFixed(2); $e('#ed_te').value = (s.trim_end ?? d.source.duration).toFixed(2);
-      $e('#ed_cpos').value = s.facecam_position; $e('#ed_gp').value = s.gameplay; $e('#ed_ch').value = s.facecam_height_pct; $e('#ed_chv').textContent = s.facecam_height_pct;
+      $e('#ed_cpos').value = s.facecam_position; $e('#ed_gp').value = s.gameplay; $e('#ed_gxa').checked = s.gameplay_x == null; $e('#ed_gx').value = Math.round((s.gameplay_x ?? 0.5) * 100); $e('#ed_gxv').textContent = s.gameplay_x == null ? 'auto' : Math.round(s.gameplay_x * 100) + ' %'; $e('#ed_ch').value = s.facecam_height_pct; $e('#ed_chv').textContent = s.facecam_height_pct;
       $e('#ed_son').checked = s.subtitles.enabled; $e('#ed_pos').value = s.subtitles.position || ''; $e('#ed_size').value = s.subtitles.font_size || '';
       $e('#ed_up').value = s.subtitles.uppercase == null ? '' : s.subtitles.uppercase ? '1' : '0';
       $e('#ed_hk').value = s.hook.text; $e('#ed_hks').value = s.hook.seconds; $e('#ed_wm').value = s.watermark.text; $e('#ed_wmc').value = s.watermark.corner;

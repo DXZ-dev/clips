@@ -370,12 +370,104 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
             raise HTTPException(409, str(e))
         return {"url": f"/api/live/preview.mp4?v={int(p.stat().st_mtime * 1000)}"}
 
+    # --- ventana en vivo: el buffer circular (segmentos .ts de 5 s) servido como HLS de ventana deslizante
+    import math
+    import re as _re
+    seg_name = _re.compile(r"^seg_(\d{8})\.ts$")
+
+    @app.get("/api/live/stream.m3u8")
+    def live_playlist():
+        segs = engine.reader.segments()[-5:]
+        if not segs:
+            raise HTTPException(404, "Todavía no llega señal del directo.")
+        lines = ["#EXTM3U", "#EXT-X-VERSION:3", f"#EXT-X-TARGETDURATION:{max(1, math.ceil(max(s.dur for s in segs)))}"]
+        first = int(seg_name.match(segs[0].path.name).group(1)) if seg_name.match(segs[0].path.name) else 0
+        lines.append(f"#EXT-X-MEDIA-SEQUENCE:{first}")
+        prev = None
+        for s in segs:
+            m = seg_name.match(s.path.name)
+            idx = int(m.group(1)) if m else None
+            if prev is not None and idx is not None and idx != prev + 1:
+                lines.append("#EXT-X-DISCONTINUITY")               # hueco (p. ej. tras una reconexión)
+            lines += [f"#EXTINF:{max(s.dur, 0.1):.3f},", f"/api/live/seg/{s.path.name}"]
+            prev = idx
+        return Response("\n".join(lines) + "\n", media_type="application/vnd.apple.mpegurl", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/live/seg/{name}")
+    def live_segment(name: str):
+        if not seg_name.match(name):
+            raise HTTPException(400, "nombre inválido")
+        p = engine.reader.dir / name
+        if not p.exists():
+            raise HTTPException(404, "el segmento ya salió del buffer")
+        return FileResponse(p, media_type="video/mp2t", headers={"Cache-Control": "max-age=60"})
+
+    @app.get("/api/live/frame")
+    def live_frame(w: int = 960):
+        """Imagen (JPEG) del directo ahora mismo: sirve para marcar la cámara del streamer."""
+        import subprocess
+        from ..ffutil import require
+        segs = engine.reader.segments()
+        if not segs:
+            raise HTTPException(409, "Todavía no llega señal del directo.")
+        sg = segs[-1]
+        r = subprocess.run([require("ffmpeg"), "-v", "error", "-nostdin", "-ss", f"{max(0.0, sg.dur - 1.0):.2f}", "-i", str(sg.path),
+                            "-frames:v", "1", "-vf", f"scale={min(max(w, 320), 1920)}:-2", "-f", "image2", "-c:v", "mjpeg", "pipe:1"],
+                           capture_output=True)
+        if not r.stdout:
+            raise HTTPException(409, "No se pudo extraer una imagen del directo.")
+        return Response(r.stdout, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/live/facecam/detect")
+    def live_facecam_detect():
+        """Busca la cámara del streamer en los últimos segundos del directo."""
+        from ..ffutil import probe
+        from ..tracking import detect_facecam
+        b = engine.reader.bounds()
+        if not b or b[1] - b[0] < 4:
+            raise HTTPException(409, "Aún hay muy poco directo en el buffer: espera unos segundos.")
+        if not engine.render_lock.acquire(blocking=False):
+            raise HTTPException(429, "Hay un clip renderizándose ahora mismo; inténtalo en unos segundos.")
+        try:
+            ci = engine.reader.prepare_range(max(b[0], b[1] - 10), b[1])
+            try:
+                info = probe(str(ci.workdir / "list.txt"), ["-f", "concat", "-safe", "0"])
+                rect = detect_facecam(ci.args, info, engine.cfg)
+            finally:
+                ci.cleanup()
+        finally:
+            engine.render_lock.release()
+        return {"facecam": rect.model_dump() if rect else None}
+
     @app.get("/api/live/preview.mp4")
     def live_preview_file():
         p = ed.src_dir(engine.cfg) / "live_preview.mp4"
         if not p.exists():
             raise HTTPException(404, "sin previa")
         return FileResponse(p, media_type="video/mp4", headers={"Cache-Control": "no-store"})
+
+    # ------------------------------------------------------------------ actualizaciones desde GitHub
+    from .. import updater
+
+    @app.get("/api/update")
+    def update_state():
+        return updater.state()
+
+    @app.post("/api/update/check")
+    def update_check():
+        """Consulta GitHub ahora mismo (tarda unos segundos)."""
+        updater.check()
+        return updater.state()
+
+    @app.post("/api/update/apply")
+    def update_apply():
+        """Lanza la actualización (git pull + instalador) como una unidad aparte; el panel se reinicia al terminar."""
+        try:
+            updater.start_update(engine.cfg)
+        except updater.UpdateError as e:
+            raise HTTPException(409, str(e))
+        engine.event("system", "actualización iniciada desde el panel")
+        return {"started": True}
 
     # ------------------------------------------------------------------ IA (claves pegadas en Ajustes)
     def _ai(fn, *a, **kw):
@@ -494,12 +586,31 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
 
     @app.get("/api/presets")
     def presets():
+        from ..config import SubtitlesCfg
         from ..subtitles import with_preset
         out = {}
         for k in PRESETS:
-            c = with_preset(engine.cfg.subtitles, k)
-            out[k] = {"primary": c.primary_color, "highlight": c.highlight_color, "size": c.font_size}
+            c = with_preset(SubtitlesCfg(), k)           # el estilo completo del preset sobre los valores de fábrica
+            out[k] = {"primary": c.primary_color, "highlight": c.highlight_color, "size": c.font_size,
+                      "style": {f: getattr(c, f) for f in ("font_size", "uppercase", "primary_color", "highlight_color", "outline_color",
+                                                             "outline", "max_words_per_line", "bold", "shadow")}}
         return out
+
+    _fonts: list[str] = []
+
+    @app.get("/api/fonts")
+    def fonts():
+        """Familias de letra instaladas en el servidor (las que puede usar libass al quemar los subtítulos)."""
+        if not _fonts:
+            import shutil as _sh
+            import subprocess as _sp
+            names = set()
+            if _sh.which("fc-list"):
+                out = _sp.run(["fc-list", ":", "family"], capture_output=True, text=True).stdout
+                for line in out.splitlines():
+                    names.add(line.split(",")[0].strip())
+            _fonts.extend(sorted(n for n in names if n) or ["DejaVu Sans"])
+        return _fonts
 
     @app.get("/api/clips/{name}/edit")
     def clip_edit(name: str):

@@ -153,3 +153,87 @@ def test_source_probe_endpoint(tmp_path, monkeypatch):
                                                                      "title": "t", "duration": None, "message": "En directo ahora"})
     r = c.post("/api/source/probe", json={"url": "https://kick.com/x"})
     assert r.status_code == 200 and r.json()["platform"] == "kick" and r.json()["live"] is True
+
+
+# ------------------------------------------------------------------ ventana en vivo (HLS) y modo automático
+def make_segments(buf: Path, seconds: int = 30) -> None:
+    buf.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=s=640x360:r=25:d={seconds}", "-f", "lavfi", "-i",
+                    f"sine=f=300:d={seconds}", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", "-c:a", "aac", "-f", "segment",
+                    "-segment_time", "5", "-segment_format", "mpegts", "-segment_list", str(buf / "list.csv"), "-segment_list_type", "csv",
+                    "-segment_list_flags", "live", "-reset_timestamps", "0", str(buf / "seg_%08d.ts")], check=True)
+
+
+def test_hls_playlist_and_segments(tmp_path):
+    cfg = Config()
+    cfg.buffer.dir, cfg.clip.output_dir, cfg.transcribe.enabled = str(tmp_path / "buf"), str(tmp_path / "out"), False
+    c = TestClient(create_app(Engine(cfg, data_dir=tmp_path), manage_engine=False), base_url="http://localhost")
+    assert c.get("/api/live/stream.m3u8").status_code == 404                      # sin señal
+    make_segments(tmp_path / "buf", 40)
+    r = c.get("/api/live/stream.m3u8")
+    assert r.status_code == 200 and "mpegurl" in r.headers["content-type"] and r.headers["cache-control"] == "no-store"
+    lines = r.text.splitlines()
+    assert lines[0] == "#EXTM3U" and "#EXT-X-ENDLIST" not in r.text                  # sin ENDLIST = directo
+    entries = [l for l in lines if l.startswith("/api/live/seg/")]
+    assert len(entries) == 5 and entries[-1] == "/api/live/seg/seg_00000007.ts"      # ventana de los 5 últimos
+    seq = [l for l in lines if l.startswith("#EXT-X-MEDIA-SEQUENCE")][0]
+    assert seq == "#EXT-X-MEDIA-SEQUENCE:3"
+    assert int([l for l in lines if l.startswith("#EXT-X-TARGETDURATION")][0].split(":")[1]) >= 5
+    seg = c.get(entries[0])
+    assert seg.status_code == 200 and seg.headers["content-type"] == "video/mp2t" and seg.content[0] == 0x47   # sincronismo MPEG-TS
+    assert c.get("/api/live/seg/seg_1.ts").status_code == 400 and c.get("/api/live/seg/..%2Flist.csv").status_code in (400, 404)
+    assert c.get("/api/live/seg/seg_00000999.ts").status_code == 404
+    # hueco en la numeración (reconexión) => #EXT-X-DISCONTINUITY
+    csv = (tmp_path / "buf" / "list.csv").read_text().splitlines()
+    (tmp_path / "buf" / "seg_00000020.ts").write_bytes((tmp_path / "buf" / "seg_00000007.ts").read_bytes())
+    (tmp_path / "buf" / "list.csv").write_text("\n".join(csv + ["seg_00000020.ts,40.0,45.0"]))
+    assert "#EXT-X-DISCONTINUITY" in c.get("/api/live/stream.m3u8").text
+
+
+def test_hls_requires_login_when_password_set(tmp_path):
+    from clipper import auth
+    cfg = Config()
+    cfg.buffer.dir, cfg.clip.output_dir, cfg.transcribe.enabled = str(tmp_path / "buf"), str(tmp_path / "out"), False
+    cfg.server.password_hash = auth.hash_password("clave-larga-1")
+    make_segments(tmp_path / "buf", 12)
+    c = TestClient(create_app(Engine(cfg, data_dir=tmp_path), manage_engine=False), base_url="http://192.168.1.5:7848")
+    assert c.get("/api/live/stream.m3u8").status_code == 401 and c.get("/api/live/seg/seg_00000000.ts").status_code == 401
+    c.post("/api/auth/login", json={"password": "clave-larga-1"})
+    assert c.get("/api/live/stream.m3u8").status_code == 200
+
+
+def test_auto_mode_rate_limit_and_toggle(tmp_path):
+    from clipper.detect.triggers import Trigger
+    cfg = Config()
+    cfg.buffer.dir, cfg.clip.output_dir, cfg.transcribe.enabled = str(tmp_path / "buf"), str(tmp_path / "out"), False
+    cfg.triggers.cooldown_seconds, cfg.triggers.max_per_hour = 10, 2
+    eng = Engine(cfg, data_dir=tmp_path)
+    for i in range(5):                                                   # 5 momentos separados más que el enfriamiento
+        eng._auto(Trigger("keyword", 100 + i * 30, "mira esto"))
+        eng._flush_pending(force=True)
+    assert len(eng.jobs) == 2 and any("límite de 2" in e["detail"] for e in eng.events)
+    assert eng.status()["auto"] == {"enabled": True, "max_per_hour": 2, "last_hour": 2}
+    cfg.triggers.auto_enabled = False                                    # modo manual: no se crea nada solo
+    n = len(eng.jobs)
+    eng._auto(Trigger("keyword", 1000, "x"))
+    eng._flush_pending(force=True)
+    assert len(eng.jobs) == n and eng.status()["auto"]["enabled"] is False
+
+
+def test_live_frame_and_facecam_detect_endpoints(tmp_path):
+    cfg = Config()
+    cfg.buffer.dir, cfg.clip.output_dir, cfg.transcribe.enabled = str(tmp_path / "buf"), str(tmp_path / "out"), False
+    cfg.reframe.detector = "none"
+    eng = Engine(cfg, data_dir=tmp_path)
+    c = TestClient(create_app(eng, manage_engine=False), base_url="http://localhost")
+    assert c.get("/api/live/frame").status_code == 409 and c.post("/api/live/facecam/detect").status_code == 409
+    make_segments(tmp_path / "buf", 30)
+    r = c.get("/api/live/frame?w=480")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg" and r.content[:2] == b"\xff\xd8"
+    d = c.post("/api/live/facecam/detect")
+    assert d.status_code == 200 and d.json() == {"facecam": None}                 # sin detector no hay cámara
+    # guardar la cámara a mano desde el panel (y volver a la autodetección)
+    ok = c.put("/api/settings", json={"layout": {"mode": "split", "facecam": {"x": 0.0, "y": 0.0, "w": 0.285, "h": 0.37}}})
+    assert ok.status_code == 200 and cfg.layout.facecam.w == 0.285 and cfg.layout.mode == "split"
+    assert c.put("/api/settings", json={"layout": {"facecam": {"x": 0.9, "y": 0, "w": 0.3, "h": 0.3}}}).status_code == 422   # se sale del fotograma
+    assert c.put("/api/settings", json={"layout": {"facecam": None}}).status_code == 200 and cfg.layout.facecam is None

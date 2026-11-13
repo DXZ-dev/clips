@@ -170,8 +170,11 @@ class SpeakerSelector:
 
 
 # ------------------------------------------------------------------ movimiento
-def motion_center(gray, prev, mask_px: tuple[int, int, int, int] | None = None) -> float | None:
-    """Centro de masa horizontal (0..1) del movimiento entre dos fotogramas; None si casi no hay."""
+def motion_center(gray, prev, mask_px: tuple[int, int, int, int] | None = None, center_bias: float = 0.0) -> float | None:
+    """Dónde está la acción (x, 0..1) entre dos fotogramas; None si casi no hay movimiento.
+
+    Se toma el PICO del movimiento (no la media: con dos acciones separadas la media cae en un hueco vacío) y se centra en su
+    entorno. `center_bias` favorece la acción céntrica frente a la lateral (el punto de vista suele estar en el centro)."""
     if prev is None:
         return None
     d = cv2.GaussianBlur(cv2.absdiff(gray, prev), (5, 5), 0)
@@ -182,7 +185,44 @@ def motion_center(gray, prev, mask_px: tuple[int, int, int, int] | None = None) 
     if mask.mean() < 0.002:
         return None
     cols = mask.sum(axis=0)
-    return float((cols * np.arange(gray.shape[1])).sum() / cols.sum() / gray.shape[1])
+    w = gray.shape[1]
+    xs = np.arange(w) / w
+    prior = (1 - center_bias) + center_bias * np.exp(-((xs - 0.5) / 0.28) ** 2 / 2)       # 1 en el centro, menos en los bordes
+    k = max(3, w // 12)
+    smooth = np.convolve(cols * prior, np.ones(k) / k, mode="same")
+    peak = int(np.argmax(smooth))
+    lo, hi = max(0, peak - int(0.18 * w)), min(w, peak + int(0.18 * w))                    # entorno del pico
+    seg = cols[lo:hi]
+    if seg.sum() <= 0:
+        return peak / w
+    return float((seg * np.arange(lo, hi)).sum() / seg.sum() / w)
+
+
+# ------------------------------------------------------------------ personas / personajes (HOG integrado en OpenCV)
+class PersonDetector:
+    """Detecta figuras humanas de pie (personas o personajes de juego) sin descargar modelos. Rinde mejor con figuras grandes."""
+
+    def __init__(self):
+        self.hog = cv2.HOGDescriptor()
+        self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+
+    def detect(self, bgr) -> list[tuple[float, float, float, float, float]]:
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        rects, weights = self.hog.detectMultiScale(gray, winStride=(8, 8), padding=(8, 8), scale=1.06, hitThreshold=0.2)
+        return [(float(x), float(y), float(w), float(h), float(wt)) for (x, y, w, h), wt in zip(rects, np.ravel(weights))]
+
+
+def pick_person(rects, width: int, mask_px: tuple[int, int, int, int] | None = None) -> float | None:
+    """x (0..1) del personaje más relevante: grande, seguro y céntrico. Ignora lo que caiga en la zona enmascarada (la cámara)."""
+    best, score = None, 0.0
+    for x, y, w, h, wt in rects:
+        cx, cy = x + w / 2, y + h / 2
+        if mask_px and mask_px[0] <= cx <= mask_px[2] and mask_px[1] <= cy <= mask_px[3]:
+            continue
+        s = (w * h) * max(wt, 0.1) * (0.5 + 0.5 * (1 - abs(cx / width - 0.5) * 2))
+        if s > score:
+            best, score = cx / width, s
+    return best
 
 
 # ------------------------------------------------------------------ lectura de frames
@@ -274,12 +314,14 @@ class CropPath:
 
 
 def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | None = None, out_h: int | None = None,
-            ignore: "RectCfg | None" = None, faces: bool = True) -> CropPath:
+            ignore: "RectCfg | None" = None, faces: bool = True, people: bool | None = None) -> CropPath:
     """Trayectoria de la cámara virtual. out_w/out_h = proporción del recorte (por defecto 9:16 completo);
-    `ignore` = rectángulo normalizado que no cuenta como acción; faces=False sigue solo el movimiento."""
+    `ignore` = rectángulo normalizado que no cuenta como acción; faces=False sigue solo el movimiento.
+    Prioridad del objetivo: rostro/hablante → personaje en pantalla → movimiento (con sesgo al centro) → punto de vista central."""
     r = cfg.reframe
     geom = crop_geometry(info, out_w or r.width, out_h or r.height)
-    aw = r.analysis_width
+    people = r.track_people if people is None else people
+    aw = max(r.analysis_width, 640) if people else r.analysis_width          # los personajes necesitan algo más de resolución
     ah = int(round(aw * info.height / info.width)) // 2 * 2
     det = make_detector(cfg) if faces else NullDetector()
     sel = SpeakerSelector(cfg, r.analysis_fps)
@@ -292,6 +334,8 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | No
     mask_px = None
     if ignore:
         mask_px = (int(ignore.x * aw), int(ignore.y * ah), int((ignore.x + ignore.w) * aw) + 1, int((ignore.y + ignore.h) * ah) + 1)
+    pdet = PersonDetector() if people else None
+    person_x: float | None = None
     targets: list[float | None] = []
     prev = None
     try:
@@ -299,7 +343,15 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | No
             gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
             voice = bool(audio_db[min(i, n_est - 1)] > gate)
             box = sel.update(det.detect(bgr), gray, prev, voice)
-            targets.append(box.cx / aw if box is not None else motion_center(gray, prev, mask_px))
+            if box is not None:
+                targets.append(box.cx / aw)
+            else:
+                if pdet is not None and i % 3 == 0:                      # ~2 detecciones/s: suficiente y barato
+                    person_x = pick_person(pdet.detect(bgr), aw, mask_px)
+                if person_x is not None:
+                    targets.append(person_x)
+                else:
+                    targets.append(motion_center(gray, prev, mask_px, r.center_bias))
             prev = gray
     finally:
         if hasattr(det, "close"):
@@ -362,10 +414,10 @@ def detect_facecam(input_args: list[str], info: VideoInfo, cfg: Config, seconds:
     cx, cy, fw, fh = (float(v) for v in np.median(np.array(best), axis=0))
     if fw > 0.3 or not (cx < 0.35 or cx > 0.65 or cy < 0.3 or cy > 0.7):
         return None                                               # rostro grande o central: no es una cámara superpuesta
-    w = fw * 3.2                                                  # la cámara suele medir ~3 veces el ancho del rostro
+    w = fw * 3.2                                                  # una cámara con plano de busto mide ~3,2 veces el ancho del rostro
     ed = min(cx, 1 - cx)
-    if ed < 0.3:                                                  # pegada a un lado: se extiende hasta el borde
-        w = max(w, 2 * ed)
+    if ed < 0.3:                                                  # pegada a un lado: puede ser algo mayor, pero sin pasarse
+        w = min(max(w, 2 * ed), fw * 3.6)
     w = min(0.5, w)
     h = min(0.9, w * (info.width / info.height) * 3 / 4)         # proporción 4:3 en píxeles
     x, y = min(max(cx - w / 2, 0), 1 - w), min(max(cy - h / 2, 0), 1 - h)
