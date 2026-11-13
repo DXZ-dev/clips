@@ -199,9 +199,11 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         if overlay:
             mk = f"color=c=white:s={PW}x{cam_h}:r=25:d=0.04,format=gray,geq=lum='{_round_expr(cfg.layout.panel_radius)}',loop=loop=-1:size=1[mk]"
             en = _cam_enable(fp, spec, cfg)
-            if en == "":                                       # sin rostro en todo el clip: solo el gameplay
-                note["cam_hidden"] = True
-                return f"[0:v]split=2[s1][s2];{cam};{game};[game]null[v0]", None, note
+            if en == "":                                       # sin rostro en la cámara en todo el clip (vlog / IRL / cambio de escena)
+                g2, seam2, note2 = build_graph(cfg, spec.model_copy(update={"layout": "auto", "gameplay_zone": None}), info,
+                                               input_args, static, cache, panels)           # → sigue a las personas por todo el encuadre
+                note2["cam_hidden"] = True
+                return g2, seam2, note2
             ov = f":enable='{en}'" if en else ""
             graph = (f"[0:v]split=2[s1][s2];{cam};{game};{mk};[cam]format=yuva420p[camf];[camf][mk]alphamerge[camr];"
                      f"[game][camr]overlay={ob[0]}:{ob[1]}{ov}[v0]")

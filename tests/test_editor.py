@@ -382,3 +382,16 @@ def test_cam_hides_without_face():
     assert en.count("between") == 2
     assert _cam_enable(FacePath(6, [.5], [.5], [False]), None, cfg) == ""
     assert _cam_enable(FacePath(6, [.5], [.5], None), None, cfg) is None
+
+
+def test_irl_fallback_follows_people_when_cam_has_no_face(cfg, source, monkeypatch):
+    from clipper import render as R
+    from clipper.config import RectCfg
+    from clipper.tracking import FacePath
+    cfg.layout.facecam = RectCfg(x=0.02, y=0.02, w=0.3, h=0.3)
+    cfg.layout.gameplay_zone = RectCfg(x=0.4, y=0.0, w=0.2, h=1.0)
+    cfg.layout.panels, cfg.layout.mode = "overlay", "split"
+    monkeypatch.setattr(R, "track_face_in", lambda *a, **k: FacePath(6, [.5] * 6, [.45] * 6, [False] * 6))
+    spec = default_spec(cfg, [], 0.5, 4.5)
+    _, _, note = build_graph(cfg, spec, probe(source), ["-i", str(source)], False, {}, None)
+    assert note["layout"] == "auto" and note["cam_hidden"] is True
