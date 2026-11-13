@@ -1,6 +1,6 @@
 # clipper — clips verticales 9:16 desde directos
 
-Herramienta personal (Debian/Ubuntu). Estado: **Fases 1, 2 y 3 completas** (buffer + reframe 9:16 + subtítulos ASS · transcripción y disparadores · panel web).
+Herramienta personal (Debian/Ubuntu). Panel por secciones: **Directo · Vídeos · Clips · Publicación · Ajustes** (todo se configura desde el navegador, incluidas las claves de IA/APIs).
 
 ## Instalación automática (Linux)
 El instalador clona el repositorio, instala las dependencias del sistema (ffmpeg, Python venv, fuentes, libs gráficas), crea el entorno virtual,
@@ -23,6 +23,37 @@ Opciones útiles (`./install.sh --help`): `--service` (servicio systemd de usuar
 (`--purge` borra además modelos, ajustes, secretos, tokens y cola; nunca borra tus clips).
 Probado en Ubuntu 24.04 con Python 3.11 (también 3.12 en desarrollo). Debian/Ubuntu: completo. Fedora y Arch: instalan lo básico pero **sin probar** (en Fedora, ffmpeg con libx264 requiere RPM Fusion).
 Tras instalar: `clipper serve` → **http://localhost:7848** (puerto configurable con `--port` o `server.port`).
+
+## Windows y Docker
+**Recomendado en Windows: Docker Desktop (WSL2).** Ejecuta exactamente el mismo código Linux que está probado y usa tu GPU NVIDIA para Whisper.
+No hay `.exe` nativo: no puedo probar Windows desde el entorno de desarrollo y prefiero no prometer lo que no he podido comprobar.
+
+En PowerShell (instala Docker Desktop antes con `winget install -e --id Docker.DockerDesktop` si no lo tienes):
+```powershell
+irm https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.ps1 | iex
+```
+Descarga el código, detecta la GPU, construye la imagen, arranca el contenedor y abre `http://localhost:7848`. Tus clips quedan en `<carpeta>\output_clips`.
+
+A mano (Linux, Windows o Mac): `docker compose up -d --build` (CPU) o `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build` (GPU NVIDIA; en Linux necesita NVIDIA Container Toolkit).
+- Todos los datos viven en el volumen `/data` (ajustes, secretos, tokens, modelos, cola); los clips en `./output_clips`. Variables opcionales con el formato `CLIPPER__SECCION__CLAVE`
+  (p. ej. `CLIPPER__COMPUTE__DEVICE=cpu`, `CLIPPER__AI__LLM__API_KEY=…`); la primera vez descarga el modelo Whisper (`CLIPPER_AUTO_DOWNLOAD=0` para evitarlo).
+- El panel solo se publica en `127.0.0.1:7848` (no tiene autenticación). OBS → `rtmp://127.0.0.1:1935/live/obs` si pones `source.type: rtmp`.
+- **Estado de la imagen Docker:** en el entorno de desarrollo no pude construirla entera (no cabía en el disco de la sesión). Sí verifiqué la capa de sistema
+  (Ubuntu 24.04 + ffmpeg + venv) y los pasos de Python son los del instalador de Linux, ya probado; el primer `build` en tu equipo es la prueba definitiva.
+- NVENC dentro de Docker/WSL2 depende del sistema: si no está disponible, el render cae solo a `libx264` (CPU). El gran beneficio de la GPU es Whisper.
+
+**Para tu PC (i9-10900K · 32 GB · RTX 3060 Ti 8 GB):** sobra potencia. Whisper `small` (o `medium`) en GPU transcribe mucho más rápido que el tiempo real y cabe de sobra en 8 GB de VRAM,
+aunque comparte la VRAM con el juego y OBS. Si notas tirones mientras juegas, limita WSL2 creando `%USERPROFILE%\.wslconfig` con `[wsl2]` `processors=6` `memory=12GB`
+y no analices vídeos largos mientras juegas. Alternativa si el PC de juego va justo: deja el análisis en otra máquina (tu Proxmox) y dale la URL del directo de Twitch/YouTube (`streamlink`).
+
+## Directo y vídeos grabados
+- **En directo:** con la ingesta en marcha, clipper saca clips solo de los momentos destacados (palabras clave, risas, picos de volumen, habla acelerada). Se activa/desactiva en **Directo → Clips automáticos**.
+- **Vídeo ya grabado** (pestaña **Vídeos**): arrastra el archivo (hasta `vod.max_upload_gb`, 20 GB) o pega un enlace (YouTube, VOD de Twitch… vía yt-dlp). Se analiza entero,
+  se puntúan los momentos (palabra clave 3 · risa 2,5 · pico de volumen 2 · cadencia 1,5, y los cercanos se suman), se eligen los mejores separados `vod.min_gap_seconds` y se crean hasta `vod.max_clips` clips
+  con subtítulos, ajustados al inicio/fin de frase. Todos comparten la misma fuente, así que en el editor puedes ampliar el recorte a cualquier punto del vídeo.
+  Sin transcripción solo busca picos de volumen (mucho más rápido). Con CPU, Whisper `small` puede tardar del orden de la duración del vídeo; con GPU, una fracción.
+- **Subir y publicar tal cual:** el vídeo se guarda sin tocar y entra en la cola de publicación de las redes que elijas (con los mismos límites y modo de revisión).
+- Los clips generados de ambas formas entran en la cola de publicación según el modo de cada destino (Revisión por defecto).
 
 ## Instalación manual (Ubuntu/Debian)
 ```bash
@@ -82,6 +113,14 @@ TikTok sin auditar solo permite `SELF_ONLY`; los tokens de Meta caducan a los ~6
 antes de publicar, así que `auto` puede no pasar su auditoría. Por eso la visibilidad por defecto es *privada* y el modo es *Revisión*.
 Eres responsable de los derechos de lo que emites (música, juegos, terceros) y de cumplir las normas de cada plataforma.
 Los cuatro destinos están probados **solo con respuestas HTTP simuladas** (según la documentación de cada API), no contra los servicios reales.
+
+## Claves y proveedores de IA (se pegan en el panel, nunca en el código)
+**Ajustes → IA de texto** (ganchos, títulos y descripciones; botón «✨ Sugerir con IA» en el editor y «✨ Generar con IA» en la cola de publicación) y
+**Ajustes → Transcripción → API** (alternativa a Whisper local). Cada sección tiene **«Guardar y probar conexión»**.
+- Proveedores de texto: cualquier API compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio… con su URL base y modelo) o Anthropic.
+- Las claves se guardan en `secrets.local.yaml` (permisos 600, fuera de git; en Docker, en el volumen `/data`), no se muestran de nuevo y nunca van a `config.yaml`.
+  También se aceptan por variable de entorno (`CLIPPER__AI__LLM__API_KEY`, `CLIPPER_API_KEY`).
+- Con la IA activada se envía a ese servicio la transcripción del clip; usa Ollama/LM Studio en tu red si no quieres que salga. «Generar título al encolar» + modo Auto de publicación publica sin revisión humana (y el texto del directo podría intentar manipular a la IA): déjalo apagado salvo que lo quieras.
 
 ## Privacidad: 100 % local por defecto
 - En ejecución **no se contacta ningún servidor externo**: Whisper corre en tu máquina con `local_files_only` (`transcribe.allow_downloads: false`) y `HF_HUB_OFFLINE=1`; el panel no carga CDNs. Verificado transcribiendo con la red bloqueada.

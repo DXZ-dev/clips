@@ -6,12 +6,15 @@ from pathlib import Path
 
 from urllib.parse import urlparse
 
+import anyio
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import ValidationError
 from pydantic import BaseModel
 
+from .. import ai
 from .. import editor as ed
 from ..engine import Engine
 from ..spec import EditSpec
@@ -38,6 +41,26 @@ class EditRequest(BaseModel):
 class RenderRequest(BaseModel):
     spec: EditSpec
     as_new: bool = False
+
+
+class SuggestRequest(BaseModel):
+    clip: str | None = None
+    transcript: str | None = None
+
+
+class TestRequest(BaseModel):
+    target: str = "llm"      # llm | transcribe
+
+
+class ImportRequest(BaseModel):
+    url: str
+    mode: str = "highlights"
+    max_clips: int = 0
+    clip_seconds: int = 0
+    transcribe: bool = True
+    platforms: list[str] = []
+    title: str = ""
+    description: str = ""
 
 
 class DeviceRequest(BaseModel):
@@ -176,6 +199,136 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
     def publish_delete(pid: int):
         _act(pub.delete, pid)
         return {"deleted": pid}
+
+    # ------------------------------------------------------------------ vídeos (subir / enlace -> clips destacados o publicar tal cual)
+    vids = engine.videos
+
+    def _video_opts(mode: str, max_clips: int, clip_seconds: int, transcribe: bool, platforms: list[str],
+                    title: str, description: str) -> dict:
+        if mode not in ("highlights", "asis"):
+            raise HTTPException(422, "mode debe ser highlights o asis")
+        if not 0 <= max_clips <= 50 or not 0 <= clip_seconds <= 120:
+            raise HTTPException(422, "max_clips (0-50) o clip_seconds (0-120) fuera de rango")
+        if platforms:
+            if not engine.cfg.publish.enabled:
+                raise HTTPException(409, "La publicación está desactivada (Ajustes → Publicación).")
+            bad = [p for p in platforms if p not in pub.destinations()]
+            if bad:
+                raise HTTPException(422, f"destino no activado: {', '.join(bad)}")
+        return {"max_clips": max_clips, "clip_seconds": clip_seconds, "transcribe": transcribe,
+                "platforms": platforms, "title": title[:100], "description": description[:2000]}
+
+    @app.post("/api/videos/upload")
+    async def video_upload(request: Request, filename: str, mode: str = "highlights", max_clips: int = 0,
+                           clip_seconds: int = 0, transcribe: bool = True, platforms: str = "", title: str = "",
+                           description: str = ""):
+        """Subida en streaming (cuerpo crudo): no carga el archivo en memoria, admite vídeos de varios GB."""
+        opts = _video_opts(mode, max_clips, clip_seconds, transcribe, [p for p in platforms.split(",") if p], title, description)
+        limit = int(engine.cfg.vod.max_upload_gb * 1e9)
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > limit:
+            raise HTTPException(413, f"El archivo supera el máximo de {engine.cfg.vod.max_upload_gb:g} GB (vod.max_upload_gb).")
+        try:
+            job, path = vids.begin_upload(filename, mode, opts)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        size = 0
+        try:
+            with open(path, "wb") as f:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > limit:
+                        raise HTTPException(413, "El archivo supera el tamaño máximo permitido.")
+                    await anyio.to_thread.run_sync(f.write, chunk)
+            if size == 0:
+                raise HTTPException(422, "El archivo está vacío.")
+        except BaseException:
+            path.unlink(missing_ok=True)
+            job.status, job.error, job.message = "error", "Subida interrumpida", "Subida interrumpida"
+            raise
+        vids.finish_upload(job)
+        return {"id": job.id}
+
+    @app.post("/api/videos/import")
+    def video_import(req: ImportRequest):
+        opts = _video_opts(req.mode, req.max_clips, req.clip_seconds, req.transcribe, req.platforms, req.title, req.description)
+        try:
+            job = vids.submit_url(req.url.strip(), req.mode, opts)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        return {"id": job.id}
+
+    @app.get("/api/videos")
+    def video_list():
+        return vids.list()
+
+    @app.post("/api/videos/{jid}/cancel")
+    def video_cancel(jid: str):
+        if jid not in vids.jobs:
+            raise HTTPException(404, "no existe")
+        vids.cancel(jid)
+        return {"ok": True}
+
+    @app.delete("/api/videos/{jid}")
+    def video_remove(jid: str):
+        try:
+            vids.remove(jid)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        return {"ok": True}
+
+    # ------------------------------------------------------------------ IA (claves pegadas en Ajustes)
+    def _ai(fn, *a, **kw):
+        try:
+            return fn(*a, **kw)
+        except ai.AiError as e:
+            raise HTTPException(409, str(e))
+
+    @app.post("/api/ai/suggest")
+    def ai_suggest(req: SuggestRequest):
+        """Gancho, título, descripción y hashtags para un clip (a partir de su transcripción)."""
+        meta, transcript = {}, (req.transcript or "")
+        if req.clip:
+            try:
+                j = ed.out_dir(engine.cfg) / f"{ed.stem_of(req.clip)}.json"
+            except ed.EditorError as e:
+                raise HTTPException(400, str(e))
+            if j.exists():
+                import json as _json
+                meta = _json.loads(j.read_text())
+            transcript = transcript or meta.get("transcript", "")
+        return _ai(ai.suggest, engine.cfg.ai.llm, transcript, meta.get("reason", ""), meta.get("detail", ""))
+
+    @app.post("/api/ai/test")
+    def ai_test(req: TestRequest):
+        """Comprueba la conexión con la IA configurada (envía una petición mínima)."""
+        if req.target == "llm":
+            return {"ok": True, "reply": _ai(ai.ping, engine.cfg.ai.llm)}
+        if req.target == "transcribe":
+            import numpy as np
+            from ..detect.api_transcriber import transcribe_api
+            tc = engine.cfg.transcribe
+            if tc.provider != "api":
+                raise HTTPException(409, "La transcripción está en modo local; elige «API» y guarda para probarla.")
+            try:
+                transcribe_api(tc.api, np.zeros(16000, np.float32), 0.0, tc.language, timeout=30)
+            except RuntimeError as e:
+                raise HTTPException(409, str(e))
+            except Exception as e:  # noqa: BLE001
+                raise HTTPException(502, f"No se pudo conectar: {type(e).__name__}")
+            return {"ok": True, "reply": "conexión correcta"}
+        raise HTTPException(422, "target debe ser llm o transcribe")
+
+    @app.post("/api/publish/{pid}/ai")
+    def publish_ai(pid: int):
+        try:
+            return pub.regenerate(pid)
+        except ai.AiError as e:
+            raise HTTPException(409, str(e))
+        except KeyError:
+            raise HTTPException(404, "no existe")
+        except ValueError as e:
+            raise HTTPException(409, str(e))
 
     def _oauth(provider: str) -> OAuthPublisher:
         p = pub.providers.get(provider)

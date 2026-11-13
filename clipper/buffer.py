@@ -96,7 +96,7 @@ class BufferReader:
                 os.link(s.path, dst)
             except OSError:
                 shutil.copy2(s.path, dst)
-            lines.append(f"file '{dst}'")
+            lines.append(f"file '{dst.as_posix()}'")
         (work / "list.txt").write_text("\n".join(lines) + "\n")
         args = (["-ss", f"{ss:.3f}"] if ss > 0 else []) + [
             "-f", "concat", "-safe", "0", "-i", str(work / "list.txt")]

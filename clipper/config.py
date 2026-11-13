@@ -1,6 +1,8 @@
 """Carga y validación de config.yaml (pydantic)."""
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -8,6 +10,9 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parent.parent
+# Dónde viven los datos del usuario (config, ajustes, secretos, modelos, clips, cola). Por defecto, la carpeta del
+# proyecto; en Docker se monta un volumen y se apunta aquí con CLIPPER_STATE_DIR=/data.
+STATE = Path(os.environ.get("CLIPPER_STATE_DIR") or ROOT).expanduser().resolve()
 
 
 class SourceCfg(BaseModel):
@@ -38,7 +43,7 @@ class SourceCfg(BaseModel):
 
 
 class BufferCfg(BaseModel):
-    dir: str = "/tmp/clip_buffer"
+    dir: str = Field(default_factory=lambda: str(Path(tempfile.gettempdir()) / "clip_buffer"))
     segment_seconds: int = Field(5, ge=1)
     window_seconds: int = Field(90, ge=10)
     reencode: bool = False
@@ -183,6 +188,7 @@ class KeywordsCfg(BaseModel):
 
 
 class TriggersCfg(BaseModel):
+    auto_enabled: bool = True             # en directo: sacar clips solos de los momentos destacados
     cooldown_seconds: float = 40.0
     auto_clip_seconds: int = 30
     post_roll_seconds: float = 8.0       # cuánto después del disparo se sigue grabando
@@ -252,6 +258,40 @@ class PublishCfg(BaseModel):
     webhook: WebhookCfg = WebhookCfg()
 
 
+class LlmCfg(BaseModel):
+    """Modelo de lenguaje para sugerir ganchos, títulos y descripciones. Todo se configura desde el panel."""
+    enabled: bool = False
+    provider: Literal["openai", "anthropic"] = "openai"   # openai = cualquier API compatible (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)
+    base_url: str = ""                    # vacío = la del proveedor (https://api.openai.com/v1 | https://api.anthropic.com)
+    model: str = ""                       # p. ej. gpt-4o-mini · claude-haiku-4-5 · llama3.1 (Ollama)
+    api_key: str = Field("", exclude=True, repr=False)
+    language: str = "es"
+    temperature: float = Field(0.7, ge=0, le=2)
+
+    @field_validator("base_url")
+    @classmethod
+    def _http(cls, v: str) -> str:
+        v = v.strip().rstrip("/")
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("base_url debe empezar por http:// o https://")
+        return v
+
+
+class AiCfg(BaseModel):
+    llm: LlmCfg = LlmCfg()
+    auto_metadata: bool = False           # al encolar una publicación, generar título/descripción con la IA (sin revisión humana en modo auto)
+
+
+class VodCfg(BaseModel):
+    """Análisis de vídeos ya grabados (subidos o por enlace): se buscan los momentos destacados y se sacan clips."""
+    max_clips: int = Field(8, ge=1, le=50)
+    clip_seconds: int = Field(0, ge=0, le=120)   # 0 = triggers.auto_clip_seconds
+    min_gap_seconds: float = 45.0                # separación mínima entre clips
+    merge_window_seconds: float = 20.0           # disparos más cercanos que esto cuentan como un único momento
+    use_transcription: bool = True               # false = solo picos de volumen (mucho más rápido)
+    max_upload_gb: float = Field(20.0, gt=0)
+
+
 class ServerCfg(BaseModel):
     host: str = "127.0.0.1"
     port: int = 7848
@@ -262,6 +302,8 @@ class Config(BaseModel):
     compute: ComputeCfg = ComputeCfg()
     transcribe: TranscribeCfg = TranscribeCfg()
     triggers: TriggersCfg = TriggersCfg()
+    ai: AiCfg = AiCfg()
+    vod: VodCfg = VodCfg()
     publish: PublishCfg = PublishCfg()
     server: ServerCfg = ServerCfg()
     source: SourceCfg = SourceCfg()
@@ -274,18 +316,25 @@ class Config(BaseModel):
     render: RenderCfg = RenderCfg()
 
     def path(self, p: str) -> Path:
-        """Resuelve rutas relativas contra la raíz del proyecto."""
+        """Resuelve rutas relativas contra STATE (y, si no existen ahí pero sí en el proyecto, contra el proyecto:
+        así los modelos incluidos en una imagen Docker se encuentran aunque los datos vivan en otro volumen)."""
         q = Path(p).expanduser()
-        return q if q.is_absolute() else (ROOT / q).resolve()
+        if q.is_absolute():
+            return q
+        cand = (STATE / q).resolve()
+        if cand.exists() or not (ROOT / q).exists():
+            return cand
+        return (ROOT / q).resolve()
 
 
-SETTINGS_FILE = ROOT / "settings.local.yaml"   # cambios hechos desde el panel (se aplican sobre config.yaml)
-SECRETS_FILE = ROOT / "secrets.local.yaml"     # claves y secretos (chmod 600, fuera de git)
-TOKENS_FILE = ROOT / "tokens.local.json"       # tokens OAuth obtenidos al conectar cuentas (chmod 600)
+SETTINGS_FILE = STATE / "settings.local.yaml"   # cambios hechos desde el panel (se aplican sobre config.yaml)
+SECRETS_FILE = STATE / "secrets.local.yaml"     # claves y secretos (chmod 600, fuera de git)
+TOKENS_FILE = STATE / "tokens.local.json"       # tokens OAuth obtenidos al conectar cuentas (chmod 600)
 
 # Campos que nunca se escriben en config.yaml/settings ni se devuelven por la API.
 SECRET_PATHS = [
     "transcribe.api.api_key",
+    "ai.llm.api_key",
     "publish.youtube.client_secret",
     "publish.tiktok.client_secret",
     "publish.instagram.access_token",
@@ -313,10 +362,34 @@ def deep_merge(base: dict, patch: dict) -> dict:
     return out
 
 
+def _env_overrides() -> dict:
+    """CLIPPER__SECCION__CLAVE=valor (valor en YAML) → dict anidado. Útil en Docker: CLIPPER__SERVER__HOST=0.0.0.0."""
+    out: dict = {}
+    for k, v in os.environ.items():
+        if not k.startswith("CLIPPER__"):
+            continue
+        parts = [x.lower() for x in k[len("CLIPPER__"):].split("__") if x]
+        if not parts:
+            continue
+        node = out
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        try:
+            node[parts[-1]] = yaml.safe_load(v)
+        except yaml.YAMLError:
+            node[parts[-1]] = v
+    return out
+
+
 def load_config(path: str | Path | None = None) -> Config:
-    """config.yaml (+ settings.local.yaml + secrets.local.yaml cuando se usa el config por defecto)."""
+    """config.yaml (+ settings.local.yaml + secrets.local.yaml + variables CLIPPER__… cuando se usa el config por defecto)."""
     default = path is None
-    path = Path(path) if path else ROOT / "config.yaml"
+    if path:
+        path = Path(path)
+    else:
+        path = STATE / "config.yaml"
+        if not path.exists():
+            path = ROOT / "config.yaml"
     data = (yaml.safe_load(path.read_text()) if path.exists() else {}) or {}
     secrets: dict = {}
     if default:
@@ -324,11 +397,11 @@ def load_config(path: str | Path | None = None) -> Config:
             data = deep_merge(data, yaml.safe_load(SETTINGS_FILE.read_text()) or {})
         if SECRETS_FILE.exists():
             secrets = yaml.safe_load(SECRETS_FILE.read_text()) or {}
+        data = deep_merge(data, _env_overrides())
     cfg = Config.model_validate(data)
     for sp in SECRET_PATHS:
         if secrets.get(sp):
             set_path(cfg, sp, secrets[sp])
-    import os
     if os.environ.get("CLIPPER_API_KEY"):
         cfg.transcribe.api.api_key = os.environ["CLIPPER_API_KEY"]
     return cfg

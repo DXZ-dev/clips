@@ -19,6 +19,7 @@ from .detect.triggers import CadenceDetector, EnergyDetector, KeywordMatcher, Tr
 from .ffutil import cuda_available, pick_encoder, resolve_device
 from .pipeline import clip_from_range
 from .publish.base import TokenStore
+from .vod import VideoManager
 from .publish.queue import PublishQueue
 from .subtitles import Word
 
@@ -45,6 +46,7 @@ class Engine:
             cfg, db_path=(data_dir / "publish.db") if data_dir else None,
             tokens=TokenStore(data_dir / "tokens.json") if data_dir else None)
         self.publisher.on_event = self.event
+        self.videos = VideoManager(self)
         self.buffer = RollingBuffer(cfg)
         self.reader: BufferReader = self.buffer.reader
         self.store = WordStore()
@@ -69,6 +71,7 @@ class Engine:
     def start(self) -> None:
         self.buffer.start()
         self.publisher.start()
+        self.videos.start()
         for fn in (self._feeder, self._transcribe_loop, self._worker):
             t = threading.Thread(target=fn, name=fn.__name__, daemon=True)
             t.start()
@@ -79,6 +82,7 @@ class Engine:
     def stop(self) -> None:
         self._stop.set()
         self.publisher.stop()
+        self.videos.stop()
         self.buffer.stop()
 
     def event(self, kind: str, detail: str = "", **extra) -> None:
@@ -139,7 +143,7 @@ class Engine:
     def _auto(self, tr: Trigger) -> None:
         tc = self.cfg.triggers
         self.event(tr.kind, tr.detail, at=round(tr.t, 1))
-        if tr.t - self._last_auto < tc.cooldown_seconds:
+        if not tc.auto_enabled or tr.t - self._last_auto < tc.cooldown_seconds:
             return
         self._last_auto = tr.t
         t1 = tr.t + tc.post_roll_seconds
@@ -273,6 +277,8 @@ class Engine:
             "source": self.cfg.source.type, "queue": self._q.qsize(),
             "transcript": " ".join(w.text for w in self.store.tail(25)),
             "events": list(self.events)[:30],
+            "videos_active": sum(1 for j in self.videos.jobs.values() if j.status not in ("done", "error", "cancelled")),
+            "auto_enabled": self.cfg.triggers.auto_enabled,
             "publish": {"enabled": self.cfg.publish.enabled, "dry_run": self.cfg.publish.dry_run,
                         "pending_review": sum(1 for i in self.publisher.list() if i["status"] == "pending_review")},
             "durations": self.cfg.clip.duration_options, "default_seconds": self.cfg.clip.default_seconds,

@@ -60,6 +60,8 @@
         <div class="pane" id="p_txt">
           <label>Gancho (rótulo arriba al empezar)<input id="ed_hk" maxlength="90" placeholder="¡No te lo pierdas hasta el final!"></label>
           <label>Duración del gancho (s) <input id="ed_hks" type="number" step="0.5" min="0.5" max="15" value="3"></label>
+          <div class="tools"><button id="ed_ai">✨ Sugerir con IA</button><span id="ed_aim" class="mut" style="font-size:12px"></span></div>
+          <div id="ed_aibox" class="mut" style="font-size:12px;margin-bottom:8px"></div>
           <label>Marca de agua / @usuario <input id="ed_wm" maxlength="40" placeholder="@micanal"></label>
           <label>Esquina <select id="ed_wmc"><option value="br">Abajo derecha</option><option value="bl">Abajo izquierda</option><option value="tr">Arriba derecha</option><option value="tl">Arriba izquierda</option></select></label>
         </div>
@@ -91,6 +93,14 @@
     T('#ed_clr').onclick = () => { E.rect = null; drawRect(); };
     T('#ed_draw').onclick = () => { E.rect = E.rect || { x: 0.7, y: 0.62, w: 0.28, h: 0.36 }; drawRect(); };
     T('#ed_det').onclick = detect;
+    T('#ed_ai').onclick = async () => {
+      const m = T('#ed_aim'); m.className = 'mut'; m.textContent = 'Pensando…'; T('#ed_aibox').textContent = '';
+      try {
+        const r = await api('/api/ai/suggest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clip: E.name }) });
+        T('#ed_hk').value = r.hook; m.textContent = 'Gancho aplicado (puedes editarlo).';
+        T('#ed_aibox').innerHTML = '<b>Título:</b> ' + esc(r.title) + '<br><b>Descripción:</b> ' + esc(r.description) + '<br>' + esc(r.hashtags.join(' ')) + '<br><i>Se usarán al publicar si activas «generar con IA» en la cola.</i>';
+      } catch (e) { m.className = 'err'; m.textContent = e.message; }
+    };
     T('#ed_hl').oninput = () => (E.hl = T('#ed_hl').value);
     T('#ed_size').oninput = () => (E.size = T('#ed_size').value ? +T('#ed_size').value : null);
     rectDrag();

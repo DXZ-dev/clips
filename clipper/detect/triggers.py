@@ -18,6 +18,7 @@ class Trigger:
     kind: str       # energy | cadence | keyword | laughter | manual
     t: float        # tiempo de stream del momento clave
     detail: str = ""
+    strength: float = 1.0   # 0.5..1.5: cuánto destaca (para puntuar momentos en vídeos)
 
 
 def norm(s: str) -> str:
@@ -83,7 +84,7 @@ class EnergyDetector:
                 continue
             cur, med = float(np.mean(recent)), float(np.median(base))
             if cur - med >= self.c.spike_db and cur >= self.c.floor_db and t > self.refractory_until:
-                out.append(Trigger("energy", t, f"+{cur - med:.0f} dB sobre lo habitual"))
+                out.append(Trigger("energy", t, f"+{cur - med:.0f} dB sobre lo habitual", min(1.5, 0.5 + (cur - med) / 20)))
                 self.refractory_until = t + 5
         return out
 
@@ -101,5 +102,5 @@ class CadenceDetector:
         rate = len(recent) / self.c.window_seconds
         if rate >= self.c.words_per_second and end > self.refractory_until:
             self.refractory_until = end + 8
-            return [Trigger("cadence", end, f"{rate:.1f} palabras/s")]
+            return [Trigger("cadence", end, f"{rate:.1f} palabras/s", min(1.5, rate / self.c.words_per_second))]
         return []

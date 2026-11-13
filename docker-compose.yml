@@ -1,0 +1,37 @@
+# clipper con Docker.
+#   CPU :  docker compose up -d --build
+#   GPU :  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build      (NVIDIA + Container Toolkit / Docker Desktop con WSL2)
+# Panel: http://localhost:7848      Logs: docker compose logs -f
+name: clipper
+
+services:
+  clipper:
+    image: ghcr.io/dxz-dev/clips:latest
+    build:
+      context: .
+      args:
+        GPU: "0"
+    container_name: clipper
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7848:7848"   # panel (solo este equipo: no tiene autenticación). Para la red local ver README → "Docker".
+      - "1935:1935"             # entrada RTMP para OBS (source.type: rtmp, url rtmp://0.0.0.0:1935/live/obs)
+    environment:
+      # Todo se puede cambiar luego desde el panel (⚙️ Ajustes). Estas variables son opcionales.
+      CLIPPER_AUTO_DOWNLOAD: "1"          # descarga el modelo Whisper la primera vez (0 = nunca)
+      # CLIPPER__COMPUTE__DEVICE: "cpu"   # auto | cuda | cpu
+      # CLIPPER__TRANSCRIBE__MODEL: "small"
+      # CLIPPER__SOURCE__TYPE: "rtmp"
+      # CLIPPER__SOURCE__URL: "rtmp://0.0.0.0:1935/live/obs"
+      # Claves de API: pégalas en el panel. Si prefieres variables de entorno:
+      # CLIPPER__AI__LLM__API_KEY: "..."
+      # CLIPPER_API_KEY: "..."            # transcripción por API
+    volumes:
+      - clipper-data:/data                       # ajustes, secretos, tokens, modelos y cola de publicación
+      - ./output_clips:/data/output_clips        # tus clips, visibles desde tu sistema de archivos
+      # - ./videos:/videos:ro                    # para source.type: file con tus propios vídeos (file: /videos/mi.mp4)
+    tmpfs:
+      - /tmp:size=1g                             # buffer circular en memoria (no desgasta el disco)
+
+volumes:
+  clipper-data:

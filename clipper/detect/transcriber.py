@@ -111,6 +111,13 @@ class LiveTranscriber:
             self.pend = np.concatenate([self.pend, audio])
             self._process()
 
+    def flush(self) -> None:
+        """Transcribe lo que quede pendiente (al terminar un vídeo)."""
+        with self._lock:
+            if self.pend.size:
+                self._emit(self.pend, self.pend_t0)
+                self.pend = np.zeros(0, np.float32)
+
     def transcribe(self, audio: np.ndarray, t0: float = 0.0, vad_filter: bool = False) -> list[Word]:
         self.load()
         if self.tc.provider == "api":

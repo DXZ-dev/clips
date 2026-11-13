@@ -1,0 +1,18 @@
+# Override para GPU NVIDIA (Whisper en CUDA y, si el sistema lo permite, codificación NVENC).
+# Linux: requiere NVIDIA Container Toolkit.  Windows: Docker Desktop (WSL2) + driver NVIDIA reciente.
+services:
+  clipper:
+    image: ghcr.io/dxz-dev/clips:gpu
+    build:
+      args:
+        GPU: "1"
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+      CLIPPER__COMPUTE__DEVICE: auto
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

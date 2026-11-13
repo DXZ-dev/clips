@@ -16,7 +16,7 @@ source:
   file_follow: false    # true => archivo que se está grabando (usa .ts/.mkv/.flv; mp4 no es legible mientras se escribe)
 
 buffer:
-  dir: /tmp/clip_buffer
+  # dir: /tmp/clip_buffer   # por defecto: carpeta temporal del sistema (C:\\Users\\...\\Temp en Windows)
   segment_seconds: 5
   window_seconds: 90    # el buffer conserva ~esto; lo más antiguo se borra solo
   reencode: false       # false = -c copy (sin CPU, cortes en keyframes). true = GOP fijo, segmentos exactos

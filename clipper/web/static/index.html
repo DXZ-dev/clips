@@ -26,9 +26,33 @@ button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:8px;flex-wra
 fieldset{border:1px solid var(--line);border-radius:10px;padding:10px;margin:0}legend{color:var(--mut);font-size:12px;padding:0 6px}
 label{display:block;margin:6px 0;font-size:13px;color:var(--mut)}label.chk{color:var(--tx)}
 input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width:100%;margin-top:3px;background:#10131a;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
-.warn{font-size:12px;color:#ffb86b;margin-top:6px}</style></head>
-<body><main>
-<h1>✂️ clipper <span class="mut" id="src"></span></h1>
+.warn{font-size:12px;color:#ffb86b;margin-top:6px}
+/* ---- diseño moderno ---- */
+body{background:radial-gradient(1200px 500px at 70% -10%,#1b2033 0,transparent 60%),var(--bg)}
+main{max-width:1180px;margin:0 auto;padding:18px 16px 60px}
+.top{position:sticky;top:0;z-index:20;background:rgba(11,13,18,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:22px;padding:10px 18px;flex-wrap:wrap}
+.brand{font-size:17px;white-space:nowrap}
+nav{display:flex;gap:4px;flex-wrap:wrap}nav a{padding:7px 15px;border-radius:999px;color:var(--mut);cursor:pointer;font-weight:500;user-select:none}
+nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac);color:#111;font-weight:700}
+.badge{display:none;font-style:normal;background:#ff5d5d;color:#fff;border-radius:999px;font-size:11px;padding:0 6px;margin-left:4px;font-weight:700}.badge.on{display:inline-block}
+.view{display:none}.view.on{display:block}
+.card{border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+.grid{align-items:start}
+.drop{border:2px dashed #34405a;border-radius:16px;padding:26px 12px;text-align:center;transition:.15s;background:rgba(255,255,255,.015)}
+.drop.over{border-color:var(--ac);background:rgba(255,230,0,.07)}
+.btnlike{display:inline-block;padding:8px 16px;border-radius:8px;background:var(--line);border:1px solid #333948;cursor:pointer}.btnlike:hover{border-color:var(--mut)}
+.seg2{display:flex;gap:6px;flex-wrap:wrap}.seg2 button{flex:1;min-width:160px;padding:10px}
+.prog{height:9px;background:var(--line);border-radius:5px;overflow:hidden}.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffe600,#ffb300);transition:width .4s}
+.row2f{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row2f label{margin:0}
+.chip2{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;background:var(--line);margin-left:6px}.chip2.ok{background:#12351f;color:#7ee2a8}.chip2.bad{background:#3b1717;color:#ff9a9a}.chip2.run{background:#33290a;color:#ffd75e}
+.job{padding:10px 0;border-bottom:1px solid var(--line)}.job:last-child{border:0}
+#vjobs a{color:var(--ac);cursor:pointer}
+#vfile{display:none!important}
+</style></head>
+<body><header class="top"><div class="brand">✂️ <b>clipper</b> <span class="mut" id="src"></span></div>
+ <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes</a></nav></header>
+<main>
+<div class="view on" id="v_live">
 <div class="grid">
  <section class="card"><h2>Buffer</h2>
   <div><span class="dot" id="live"></span><span id="livetxt">—</span></div>
@@ -48,7 +72,44 @@ input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width
   <h2 style="margin-top:14px">Última transcripción</h2><div id="tr">—</div>
  </section>
 </div>
-<details class="card" style="margin-top:12px" id="settings"><summary style="cursor:pointer;font-weight:600">⚙️ Ajustes</summary>
+<section class="card" style="margin-top:12px"><h2>Clips automáticos del directo</h2>
+ <label class="chk"><input type="checkbox" id="auto_on"> Sacar clips solos de los momentos destacados</label>
+ <div class="mut" style="font-size:13px;margin-top:4px">Con el directo en marcha detectamos palabras clave, risas, picos de volumen y habla acelerada, y guardamos el clip sin que hagas nada. Para un vídeo ya grabado usa la pestaña <b>Vídeos</b>.</div></section>
+<section class="card"><h2>Eventos</h2><div id="events"></div></section>
+</div>
+<div class="view" id="v_videos">
+<div class="grid">
+ <section class="card"><h2>Subir un vídeo</h2>
+  <div class="seg2" id="vmode"><button data-m="highlights" class="sel">✨ Buscar momentos destacados</button><button data-m="asis">📤 Subir y publicar tal cual</button></div>
+  <div class="mut" id="vhelp" style="margin:6px 0 10px;font-size:13px">Analizamos todo el vídeo (voz, risas, picos de volumen) y sacamos los mejores momentos como clips verticales con subtítulos.</div>
+  <div class="drop" id="vdrop"><div style="font-size:30px">⬆️</div><b>Arrastra tu vídeo aquí</b><div class="mut">o</div>
+   <label class="btnlike">Elegir archivo<input id="vfile" type="file" accept="video/*,.mkv,.ts,.flv" hidden></label><div class="mut" id="vfn" style="margin-top:6px"></div></div>
+  <div class="mut" style="text-align:center;margin:10px 0 6px">— o pega un enlace —</div>
+  <div class="row"><input id="vurl" placeholder="https://www.youtube.com/watch?v=… · VOD de Twitch…" style="flex:1;min-width:200px"><button id="vgo">Analizar enlace</button></div>
+  <div id="vopt_h" class="row2f" style="margin-top:12px">
+   <label>Clips como máximo <input id="v_max" type="number" min="1" max="50" value="8"></label>
+   <label>Duración de cada clip <select id="v_dur"><option value="0">Automática</option><option value="15">15 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option></select></label>
+   <label class="chk" style="grid-column:1/-1"><input type="checkbox" id="v_tr" checked> Transcribir y buscar palabras clave (más lento; sin marcar solo busca picos de volumen)</label></div>
+  <div id="vopt_a" style="display:none;margin-top:12px"><label>Título <input id="v_title" maxlength="100" placeholder="Título del vídeo"></label>
+   <label>Descripción <textarea id="v_desc" rows="3" placeholder="Texto y hashtags"></textarea></label>
+   <div class="mut" style="margin:6px 0 4px">Publicar en:</div><div id="v_plats" class="row"></div></div>
+  <div id="vup" style="display:none;margin-top:12px"><div class="prog"><i id="vupb"></i></div><div class="mut" id="vupt" style="margin-top:4px"></div></div>
+  <div id="vmsg" class="mut" style="margin-top:8px"></div>
+ </section>
+ <section class="card"><h2>Trabajos</h2><div id="vjobs"><span class="mut">Todavía no has subido ningún vídeo.</span></div></section>
+</div>
+</div>
+<div class="view" id="v_clips">
+<section class="card"><h2>Clips generados</h2><div id="clips"></div></section>
+</div>
+<div class="view" id="v_pub">
+<section class="card" id="pubcard"><h2>Publicación en redes <span id="pubflag" class="mut"></span></h2>
+ <div id="dests" class="row" style="gap:12px;margin-bottom:10px"></div>
+ <div id="queue"></div>
+</section>
+</div>
+<div class="view" id="v_set">
+<section class="card" id="settings"><h2>⚙️ Ajustes</h2>
  <p class="mut" style="font-size:12px">Todo funciona en local. Solo hay tráfico de red si eliges aquí una fuente en vivo remota o el proveedor de transcripción «API».</p>
  <div class="form">
   <fieldset><legend>Fuente</legend>
@@ -67,8 +128,21 @@ input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width
     <label>Modelo de la API <input id="a_model" placeholder="whisper-1"></label>
     <label>Clave <input id="a_key" type="password" autocomplete="off" placeholder=""></label>
     <label class="chk"><input type="checkbox" id="a_clear"> Borrar la clave guardada</label>
+    <div class="row"><button id="a_test">Guardar y probar API</button><span id="a_msg" class="mut"></span></div>
     <div class="warn">⚠️ Con «API» el audio del directo se envía a esa URL. Usa un servidor tuyo si quieres que no salga de tu red. La clave se guarda solo en este equipo (secrets.local.yaml) y no se vuelve a mostrar.</div>
    </div>
+  </fieldset>
+  <fieldset><legend>IA de texto (ganchos, títulos, descripciones)</legend>
+   <label class="chk"><input type="checkbox" id="i_on"> Activada</label>
+   <label>Proveedor <select id="i_prov"><option value="openai">Compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)</option><option value="anthropic">Anthropic (Claude)</option></select></label>
+   <label>URL base <input id="i_url" placeholder="vacío = la del proveedor · p. ej. http://localhost:11434/v1"></label>
+   <label>Modelo <input id="i_model" placeholder="gpt-4o-mini · claude-haiku-5-5 · llama3.1"></label>
+   <label>Clave de API <input id="i_key" type="password" autocomplete="off"></label>
+   <label class="chk"><input type="checkbox" id="i_clear"> Borrar la clave guardada</label>
+   <label>Idioma de salida <input id="i_lang" placeholder="es"></label>
+   <label class="chk"><input type="checkbox" id="i_auto"> Generar título y descripción con IA al encolar publicaciones</label>
+   <div class="row"><button id="i_test">Guardar y probar conexión</button><span id="i_msg" class="mut"></span></div>
+   <div class="warn">⚠️ Se envía a ese servicio la transcripción del clip. Con esta opción + modo «Automático» de publicación, el texto se publica sin que lo revises (y lo que se dice en el directo podría intentar manipular a la IA). Con Ollama o LM Studio en tu red nada sale de ella. La clave se guarda solo en este equipo y no se vuelve a mostrar.</div>
   </fieldset>
   <fieldset><legend>Disparadores</legend>
    <label>Palabras clave (una por línea) <textarea id="k_phr" rows="4"></textarea></label>
@@ -110,13 +184,8 @@ input:not([type=checkbox]):not([type=color]),select,textarea{display:block;width
   </fieldset>
  </div>
  <div class="row" style="margin-top:10px"><button id="save" class="sel">Guardar y aplicar</button><span id="smsg" class="mut"></span></div>
-</details>
-<section class="card" style="margin-top:12px" id="pubcard"><h2>Publicación en redes <span id="pubflag" class="mut"></span></h2>
- <div id="dests" class="row" style="gap:12px;margin-bottom:10px"></div>
- <div id="queue"></div>
 </section>
-<section class="card" style="margin-top:12px"><h2>Eventos</h2><div id="events"></div></section>
-<section class="card" style="margin-top:12px"><h2>Clips generados</h2><div id="clips"></div></section>
+</div>
 </main>
 <script>
 const $=id=>document.getElementById(id);let secs=30,buildDur=false,lastClips="";
@@ -126,6 +195,7 @@ function pickDur(s){secs=s;$("gosec").textContent=s;document.querySelectorAll("#
 async function status(){
  let s;try{s=await api("/api/status")}catch{$("livetxt").textContent="sin conexión con el servidor";return}
  $("src").textContent="· fuente: "+s.source;
+ if(document.activeElement!==$("auto_on"))$("auto_on").checked=!!s.auto_enabled;const pr=s.publish.pending_review;$("nb").textContent=pr;$("nb").classList.toggle("on",pr>0);
  if(!buildDur){buildDur=true;$("durs").innerHTML=s.durations.map(d=>`<button data-s="${d}">${d} s</button>`).join("");
   document.querySelectorAll("#durs button").forEach(b=>b.onclick=()=>pickDur(+b.dataset.s));pickDur(s.default_seconds)}
  const b=s.buffer;$("live").className="dot"+(b.live?" on":"");$("livetxt").textContent=b.live?"En directo":(b.error?"Error: "+b.error:"Esperando señal…");
@@ -165,7 +235,7 @@ async function loadSettings(){cur=await api("/api/settings");const c=cur;
  V("k_phr",c.triggers.keywords.phrases.join("\n"));V("k_on",c.triggers.keywords.enabled);V("k_laugh",c.triggers.keywords.laughter);
  V("e_on",c.triggers.energy.enabled);V("e_db",c.triggers.energy.spike_db);V("c_on",c.triggers.cadence.enabled);
  V("g_cool",c.triggers.cooldown_seconds);V("g_auto",c.triggers.auto_clip_seconds);V("g_post",c.triggers.post_roll_seconds);
- fillPub(c);V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
+ fillPub(c);V("i_on",c.ai.llm.enabled);V("i_prov",c.ai.llm.provider);V("i_url",c.ai.llm.base_url);V("i_model",c.ai.llm.model);V("i_lang",c.ai.llm.language);V("i_auto",c.ai.auto_metadata);$("i_key").value="";$("i_key").placeholder=c.ai.llm.api_key_set?"(guardada — déjalo vacío para conservarla)":"(sin clave; Ollama/LM Studio no la necesitan)";V("l_mode",c.layout.mode);V("l_pos",c.layout.facecam_position);V("l_h",c.layout.facecam_height_pct);V("l_gp",c.layout.gameplay);V("l_keep",c.editor.keep_sources);V("u_on",c.subtitles.enabled);V("u_hi",c.subtitles.highlight_color);V("u_size",c.subtitles.font_size);V("u_pos",c.subtitles.position);showApi()}
 const showApi=()=>$("apibox").style.display=$("t_provider").value==="api"?"block":"none";
 $("t_provider").onchange=showApi;
 $("save").onclick=async()=>{
@@ -176,10 +246,16 @@ $("save").onclick=async()=>{
   triggers:{cooldown_seconds:+$("g_cool").value,auto_clip_seconds:+$("g_auto").value,post_roll_seconds:+$("g_post").value,
    energy:{enabled:$("e_on").checked,spike_db:+$("e_db").value},cadence:{enabled:$("c_on").checked},
    keywords:{enabled:$("k_on").checked,laughter:$("k_laugh").checked,phrases:$("k_phr").value.split("\n").map(x=>x.trim()).filter(Boolean)}},
-  publish:pubPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
+  publish:pubPatch(),ai:aiPatch(),layout:{mode:$("l_mode").value,facecam_position:$("l_pos").value,facecam_height_pct:+$("l_h").value,gameplay:$("l_gp").value},editor:{keep_sources:$("l_keep").checked},subtitles:{enabled:$("u_on").checked,highlight_color:$("u_hi").value,font_size:+$("u_size").value,position:$("u_pos").value}};
  try{const r=await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
   $("smsg").textContent=r.changed.length?"Aplicado: "+r.changed.join(", "):"Sin cambios";$("a_clear").checked=false;loadSettings()}
  catch(e){$("smsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};
+function aiPatch(){const l={enabled:$("i_on").checked,provider:$("i_prov").value,base_url:$("i_url").value.trim(),model:$("i_model").value.trim(),language:$("i_lang").value.trim()||"es"};
+ if($("i_key").value)l.api_key=$("i_key").value;if($("i_clear").checked)l.clear_api_key=true;return{llm:l,auto_metadata:$("i_auto").checked}}
+async function testAi(target,msgId){const m=$(msgId);m.className="mut";m.textContent="Guardando…";
+ try{await $("save").onclick();m.className="mut";m.textContent="Probando…";const r=await api("/api/ai/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target})});m.innerHTML='<span style="color:var(--ok)">✔ '+esc(r.reply)+"</span>"}
+ catch(e){m.innerHTML='<span class="err">'+esc(e.message)+"</span>"}}
+$("i_test").onclick=()=>testAi("llm","i_msg");$("a_test").onclick=()=>testAi("transcribe","a_msg");
 $("settings").addEventListener("toggle",()=>{if($("settings").open)loadSettings()});
 
 const DEST={
@@ -218,7 +294,7 @@ async function pubs(){let p;try{p=await api("/api/publish")}catch{return}
  $("queue").innerHTML=p.items.map(i=>{const pend=i.status==="pending_review",ed=pend||i.status==="failed";
   return `<div class="ev" style="padding:8px 0"><div class="row"><b>${esc(p.destinations[i.platform]?.label||i.platform)}</b> <span>${ST[i.status]||i.status}</span> <span class="mut">${esc(i.clip)}</span>
   ${i.url?`<a style="color:var(--ac)" href="${esc(i.url)}" target="_blank" rel="noopener">abrir</a>`:""}</div>
-  ${ed?`<input data-t="${i.id}" value="${esc(i.title)}" style="width:100%;margin-top:4px;background:#10131a;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:5px 8px">`:`<div class="mut">${esc(i.title)}</div>`}
+  ${ed?`<div class="row" style="margin-top:4px"><button data-a="ai" data-id="${i.id}" title="Generar título y descripción con la IA">✨ Generar con IA</button></div>`:""}${ed?`<input data-t="${i.id}" value="${esc(i.title)}" style="width:100%;margin-top:4px;background:#10131a;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:5px 8px">`:`<div class="mut">${esc(i.title)}</div>`}
   ${i.error?`<div class="err" style="font-size:12px">${esc(i.error)}</div>`:""}
   <div class="row" style="margin-top:4px">${pend||i.status==="failed"||i.status==="rejected"?`<button class="sel" data-a="approve" data-id="${i.id}">${i.status==="pending_review"?"Aprobar y publicar":"Reintentar"}</button>`:""}
   ${pend||i.status==="queued"?`<button data-a="reject" data-id="${i.id}">Rechazar</button>`:""}
@@ -227,5 +303,53 @@ async function pubs(){let p;try{p=await api("/api/publish")}catch{return}
   try{const t=document.querySelector(`[data-t="${id}"]`);if(a==="approve"&&t)await api(`/api/publish/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:t.value})});
    if(a==="del")await api(`/api/publish/${id}`,{method:"DELETE"});else await api(`/api/publish/${id}/${a}`,{method:"POST"})}catch(e){alert(e.message)}pubSig="";pubs()})}
 window.refreshClips=()=>{lastClips="";clips()};
+/* ---- navegación y vídeos ---- */
+function show(v){document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v_"+v));document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
+ if(location.hash!=="#"+v)history.replaceState(null,"","#"+v);window.scrollTo(0,0);
+ if(v==="set")loadSettings();if(v==="videos"){vjobs();vplats()}if(v==="clips")refreshClips();}
+document.querySelectorAll("#nav a").forEach(a=>a.onclick=()=>show(a.dataset.v));
+const VMODE={m:"highlights"};
+document.querySelectorAll("#vmode button").forEach(b=>b.onclick=()=>{VMODE.m=b.dataset.m;document.querySelectorAll("#vmode button").forEach(x=>x.classList.toggle("sel",x===b));
+ $("vopt_h").style.display=VMODE.m==="highlights"?"grid":"none";$("vopt_a").style.display=VMODE.m==="asis"?"block":"none";
+ $("vhelp").textContent=VMODE.m==="highlights"?"Analizamos todo el vídeo (voz, risas, picos de volumen) y sacamos los mejores momentos como clips verticales con subtítulos.":"El vídeo se guarda tal cual y se publica en las redes que elijas, sin recortar ni cambiar nada. Usa vídeos ya verticales (9:16).";
+ $("vgo").textContent=VMODE.m==="highlights"?"Analizar enlace":"Usar enlace";if(VMODE.m==="asis")vplats()});
+async function vplats(){let p;try{p=await api("/api/publish")}catch{return}
+ const on=Object.entries(p.destinations).filter(([k,d])=>d.enabled);
+ $("v_plats").innerHTML=!p.enabled?'<span class="mut">Activa la publicación en Ajustes → Publicación.</span>':on.map(([k,d])=>`<label class="chk" style="margin:0 10px 0 0"><input type="checkbox" data-pl="${k}"> ${esc(d.label)}</label>`).join("")||'<span class="mut">No hay destinos activados.</span>'}
+function vparams(){const q=new URLSearchParams();q.set("mode",VMODE.m);
+ if(VMODE.m==="highlights"){q.set("max_clips",$("v_max").value||8);q.set("clip_seconds",$("v_dur").value);q.set("transcribe",$("v_tr").checked)}
+ else{q.set("title",$("v_title").value);q.set("description",$("v_desc").value);q.set("platforms",[...document.querySelectorAll("[data-pl]:checked")].map(x=>x.dataset.pl).join(","))}return q}
+function upload(file){if(!file)return;$("vfn").textContent=file.name+" · "+(file.size/1e6).toFixed(1)+" MB";$("vmsg").textContent="";
+ const q=vparams();q.set("filename",file.name);const x=new XMLHttpRequest();x.open("POST","/api/videos/upload?"+q);
+ $("vup").style.display="block";$("vupb").style.width="0";
+ x.upload.onprogress=e=>{if(e.lengthComputable){const p=e.loaded/e.total;$("vupb").style.width=p*100+"%";$("vupt").textContent="Subiendo… "+Math.round(p*100)+" %"}};
+ x.onload=()=>{$("vup").style.display="none";if(x.status===200){$("vmsg").innerHTML='<span style="color:var(--ok)">✔ Subido. Lo estamos procesando (mira «Trabajos»).</span>';$("vfile").value="";vjobs()}else{let m=x.status;try{m=JSON.parse(x.responseText).detail}catch{}$("vmsg").innerHTML='<span class="err">'+esc(m)+"</span>"}};
+ x.onerror=()=>{$("vup").style.display="none";$("vmsg").innerHTML='<span class="err">Se interrumpió la subida.</span>'};x.send(file)}
+$("vfile").onchange=()=>upload($("vfile").files[0]);
+const dz=$("vdrop");["dragenter","dragover"].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add("over")}));
+["dragleave","drop"].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.remove("over")}));
+dz.addEventListener("drop",ev=>upload(ev.dataTransfer.files[0]));
+$("vgo").onclick=async()=>{const url=$("vurl").value.trim();if(!url){$("vmsg").innerHTML='<span class="err">Pega un enlace.</span>';return}
+ const q=vparams();const body={url,mode:VMODE.m,max_clips:+q.get("max_clips")||0,clip_seconds:+q.get("clip_seconds")||0,transcribe:q.get("transcribe")!=="false",title:q.get("title")||"",description:q.get("description")||"",platforms:(q.get("platforms")||"").split(",").filter(Boolean)};
+ try{await api("/api/videos/import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});$("vmsg").innerHTML='<span style="color:var(--ok)">✔ Enlace recibido.</span>';$("vurl").value="";vjobs()}catch(e){$("vmsg").innerHTML='<span class="err">'+esc(e.message)+"</span>"}};
+const VST={uploading:["Subiendo",""],queued:["En cola","run"],downloading:["Descargando","run"],converting:["Preparando","run"],analyzing:["Analizando","run"],rendering:["Creando clips","run"],done:["Listo","ok"],error:["Error","bad"],cancelled:["Cancelado",""]};
+let vsig="";
+async function vjobs(){let j;try{j=await api("/api/videos")}catch{return}
+ const act=j.filter(x=>!["done","error","cancelled"].includes(x.status)).length;$("nv").textContent=act;$("nv").classList.toggle("on",act>0);
+ const sig=JSON.stringify(j);if(sig===vsig)return;vsig=sig;
+ $("vjobs").innerHTML=j.map(x=>{const st=VST[x.status]||[x.status,""],run=["queued","downloading","converting","analyzing","rendering"].includes(x.status);
+  return `<div class="job"><b>${esc(x.name)}</b><span class="chip2 ${st[1]}">${st[0]}</span>
+   ${run?`<div class="prog" style="margin:8px 0 4px"><i style="width:${Math.round(x.progress*100)}%"></i></div>`:""}
+   <div class="mut" style="font-size:13px">${esc(x.message||"")}${x.error?` <span class="err">${esc(x.error)}</span>`:""}</div>
+   ${x.clips.length&&x.mode==="highlights"?`<div style="font-size:13px;margin-top:4px">${x.clips.length} clips · <a data-goclips="1">verlos en Clips →</a></div>`:""}
+   ${x.clips.length&&x.mode==="asis"?`<div style="font-size:13px;margin-top:4px"><a data-gopub="1">ver en Publicación →</a></div>`:""}
+   <div class="row" style="margin-top:6px">${run||x.status==="uploading"?`<button data-vc="${x.id}">Cancelar</button>`:`<button data-vd="${x.id}">Quitar</button>`}</div></div>`}).join("")||'<span class="mut">Todavía no has subido ningún vídeo.</span>';
+ document.querySelectorAll("[data-vc]").forEach(b=>b.onclick=async()=>{await api(`/api/videos/${b.dataset.vc}/cancel`,{method:"POST"});vsig="";vjobs()});
+ document.querySelectorAll("[data-vd]").forEach(b=>b.onclick=async()=>{try{await api(`/api/videos/${b.dataset.vd}`,{method:"DELETE"})}catch{}vsig="";vjobs()});
+ document.querySelectorAll("[data-goclips]").forEach(a=>a.onclick=()=>show("clips"));document.querySelectorAll("[data-gopub]").forEach(a=>a.onclick=()=>show("pub"))}
+setInterval(vjobs,2500);
+$("auto_on").onchange=async()=>{try{await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({triggers:{auto_enabled:$("auto_on").checked}})})}catch(e){alert(e.message)}};
+show((location.hash||"#live").slice(1)in{live:1,videos:1,clips:1,pub:1,set:1}?(location.hash||"#live").slice(1):"live");
+
 status();clips();pubs();setInterval(pubs,3000);setInterval(status,1500);setInterval(clips,4000);
 </script><script src="/static/editor.js"></script></body></html>

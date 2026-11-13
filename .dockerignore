@@ -1,0 +1,15 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+*.egg-info
+models
+output_clips
+data
+samples/stream_cam.mp4
+settings.local.yaml
+secrets.local.yaml
+tokens.local.json
+install.sh
+install.ps1

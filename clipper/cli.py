@@ -31,6 +31,7 @@ def main(argv=None) -> int:
     sv.add_argument("--host"); sv.add_argument("--port", type=int)
     dm = sub.add_parser("download-model", help="Descarga UNA VEZ un modelo Whisper a ./models (única operación con red)")
     dm.add_argument("name", nargs="?", default="small")
+    sub.add_parser("ensure-models", help="Descarga el modelo Whisper configurado si falta (lo usa el contenedor Docker)")
     tr = sub.add_parser("transcribe", help="Transcribe un archivo a JSON de palabras (para --words)")
     tr.add_argument("input"); tr.add_argument("-o", "--out")
     f = sub.add_parser("reframe", help="Convierte un archivo a 9:16 con tracking y subtítulos")
@@ -42,7 +43,7 @@ def main(argv=None) -> int:
     f.add_argument("--facecam", help="x,y,w,h normalizados (0..1) de la cámara; sin él se autodetecta")
     a = ap.parse_args(argv)
 
-    if a.cmd != "download-model":       # ejecución normal: cero tráfico hacia Hugging Face
+    if a.cmd not in ("download-model", "ensure-models"):       # ejecución normal: cero tráfico hacia Hugging Face
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -79,6 +80,16 @@ def main(argv=None) -> int:
         print("Descargando (necesita internet solo ahora)…")
         download_model(a.name, output_dir=str(dest))
         print(f"Listo: {dest}. A partir de ahora funciona sin red.")
+    elif a.cmd == "ensure-models":
+        from .models import ensure_whisper
+        try:
+            r = ensure_whisper(cfg)
+        except Exception as e:  # noqa: BLE001
+            print(f"AVISO: no se pudo descargar el modelo Whisper ({type(e).__name__}). "
+                  "Revisa la conexión o usa transcribe.provider: api en Ajustes.")
+            return 1
+        print({"skip": "Whisper: nada que descargar", "present": f"Whisper '{cfg.transcribe.model}' ya disponible",
+               "downloaded": f"Whisper '{cfg.transcribe.model}' descargado"}[r])
     elif a.cmd == "run":
         _run_terminal(cfg)
     elif a.cmd == "serve":

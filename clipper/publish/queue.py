@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from ..config import ROOT, Config
+from ..config import STATE, Config
 from . import metadata
 from .base import AuthError, PublishError, PublishResult, Publisher, RetryableError, TokenStore
 from .instagram import Instagram
@@ -31,7 +31,7 @@ class PublishQueue:
                  http: httpx.Client | None = None):
         self.cfg = cfg
         self.tokens = tokens or TokenStore()
-        db_path = db_path or ROOT / "data" / "publish.db"
+        db_path = db_path or STATE / "data" / "publish.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -72,6 +72,11 @@ class PublishQueue:
             j = self.clip_path(clip).with_suffix(".json")
             meta = json.loads(j.read_text()) if j.exists() else {}
         title, desc = metadata.render(self.cfg.publish, meta, prov.title_limit(), prov.description_limit())
+        if self.cfg.ai.auto_metadata and self.cfg.ai.llm.enabled and meta.get("transcript"):
+            try:
+                title, desc = self._ai_text(prov, meta)
+            except Exception as e:  # noqa: BLE001  — si la IA falla se queda la plantilla
+                log.warning("IA no disponible para el título, se usa la plantilla: %s", e)
         auto = approved if approved is not None else prov.dest.mode == "auto"
         now = time.time()
         with self.lock:
@@ -81,6 +86,23 @@ class PublishQueue:
             self.db.commit()
         self.on_event("publish", f"{prov.label}: {clip} → {'en cola' if auto else 'pendiente de revisión'}")
         return cur.lastrowid
+
+    def _ai_text(self, prov: Publisher, meta: dict) -> tuple[str, str]:
+        from .. import ai
+        sug = ai.suggest(self.cfg.ai.llm, meta.get("transcript", ""), meta.get("reason", ""), meta.get("detail", ""))
+        desc = (sug["description"] + "\n\n" + " ".join(sug["hashtags"])).strip()
+        return sug["title"][:prov.title_limit()], desc[:prov.description_limit()]
+
+    def regenerate(self, pid: int) -> dict:
+        """Vuelve a generar título y descripción con la IA para una entrada aún editable."""
+        it = self.get(pid)
+        if not it or it["status"] not in ("pending_review", "failed", "queued"):
+            raise ValueError("solo se puede regenerar antes de publicar")
+        j = self.clip_path(it["clip"]).with_suffix(".json")
+        meta = json.loads(j.read_text()) if j.exists() else {}
+        title, desc = self._ai_text(self.providers[it["platform"]], meta)
+        self._set(pid, title=title, description=desc)
+        return self.get(pid)
 
     def clip_path(self, clip: str) -> Path:
         if Path(clip).name != clip:

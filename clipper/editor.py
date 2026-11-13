@@ -34,6 +34,15 @@ def stem_of(name: str) -> str:
 
 
 def source_path(cfg: Config, stem: str) -> Path:
+    """Fuente de un clip: la suya (`<stem>.src.mp4`) o una compartida (vídeos largos: `vod_*.src.mp4`) indicada en su edit.json."""
+    ep = src_dir(cfg) / f"{stem}.edit.json"
+    if ep.exists():
+        try:
+            name = json.loads(ep.read_text())["source"]["file"]
+            if Path(name).name == name:
+                return src_dir(cfg) / name
+        except (ValueError, KeyError):
+            pass
     return src_dir(cfg) / f"{stem}.src.mp4"
 
 
@@ -102,12 +111,14 @@ def apply(cfg: Config, name: str, spec: EditSpec, as_new: bool = False) -> str:
         while (out_dir(cfg) / f"{base}_v{n}.mp4").exists():
             n += 1
         new_stem = f"{base}_v{n}"
-        new_src = source_path(cfg, new_stem)
-        try:
-            os.link(src, new_src)
-        except OSError:
-            shutil.copy2(src, new_src)
-        src = new_src
+        if src.name == f"{stem}.src.mp4":          # fuente propia: la nueva versión recibe su enlace (sin copiar datos)
+            new_src = source_path(cfg, new_stem)
+            try:
+                os.link(src, new_src)
+            except OSError:
+                shutil.copy2(src, new_src)
+            src = new_src
+        # fuente compartida: se reutiliza tal cual
     old = out_dir(cfg) / f"{stem}.json"
     extra = {}
     if old.exists():
@@ -140,9 +151,15 @@ def frame_jpeg(cfg: Config, name: str, t: float, width: int = 960) -> bytes:
 
 
 def remove_clip_files(cfg: Config, stem: str) -> None:
+    """Borra el clip y sus archivos. Una fuente compartida solo se borra cuando ya ningún clip la usa."""
     o = out_dir(cfg)
+    src = source_path(cfg, stem)
     (o / f"{stem}.mp4").unlink(missing_ok=True)
     (o / f"{stem}.json").unlink(missing_ok=True)
     for f in src_dir(cfg).glob(f"{stem}.*"):
-        if f.name.startswith(stem + ".") and f.suffix in (".mp4", ".json"):
+        if f.suffix in (".mp4", ".json"):
             f.unlink(missing_ok=True)
+    if src.name != f"{stem}.src.mp4" and src.exists():
+        still = any(src.name in e.read_text() for e in src_dir(cfg).glob("*.edit.json"))
+        if not still:
+            src.unlink(missing_ok=True)
