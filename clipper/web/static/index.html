@@ -48,6 +48,9 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
 .job{padding:10px 0;border-bottom:1px solid var(--line)}.job:last-child{border:0}
 #vjobs a{color:var(--ac);cursor:pointer}
 #vfile{display:none!important}
+.znr{position:absolute;border:2px solid;cursor:move;touch-action:none;z-index:6}.z1{border-color:#35d07f;background:rgba(53,208,127,.12)}.z2{border-color:#ffe600;background:rgba(255,230,0,.14)}
+.znr span{position:absolute;left:3px;top:2px;font:11px/1.2 system-ui;padding:1px 5px;border-radius:3px;color:#111;white-space:nowrap}.z1 span{background:#35d07f}.z2 span{background:#ffe600}
+.znr b{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:3px;cursor:nwse-resize}.z1 b{background:#35d07f}.z2 b{background:#ffe600}
 .camwrap{position:relative;line-height:0;margin-bottom:8px}.camwrap img{width:100%;border-radius:8px;background:#000;min-height:50px;display:block}
 .camrect{position:absolute;border:2px solid var(--ac);background:rgba(255,230,0,.14);cursor:move;touch-action:none}
 .camrect b{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:var(--ac);border-radius:3px;cursor:nwse-resize}
@@ -76,19 +79,25 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
 </section>
 <div class="grid">
 <section class="card"><h2>Directo en vivo <span id="lv_badge" class="chip2"></span></h2>
-  <div class="lvbox"><video id="lv_vid" muted playsinline autoplay controls></video><div id="lv_off">Esperando señal del directo…</div></div>
+  <div class="lvbox" id="lv_box"><video id="lv_vid" muted playsinline autoplay controls></video>
+   <iframe id="lv_frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="origin" style="display:none;position:absolute;inset:0;width:100%;height:100%;border:0;background:#000"></iframe>
+   <div id="lv_off">Esperando señal del directo…</div>
+   <div class="znr z1" id="zn_1" style="display:none"><span>1 · Pantalla (zona de juego y movimiento)</span><b></b></div>
+   <div class="znr z2" id="zn_2" style="display:none"><span>2 · Cámara del streamer</span><b></b></div></div>
+  <div class="row" id="lv_srcrow" style="margin-top:10px"><label class="chk" style="margin:0"><input type="radio" name="lvs" value="official" checked> 📺 Directo oficial (sin retraso)</label>
+   <label class="chk" style="margin:0"><input type="radio" name="lvs" value="clipper"> Señal de clipper (~10 s de retraso)</label></div>
   <div class="row" style="margin-top:10px"><label class="chk" style="margin:0"><input type="checkbox" id="lv_on" checked> Mostrar el directo</label>
    <button id="lv_mute">🔇 Activar sonido</button><button id="lv_edge">⏩ Ir al directo</button><span class="mut" id="lv_info" style="font-size:13px"></span></div>
-  <div class="mut" style="font-size:12px;margin-top:6px">Es el directo que recibe clipper (con ~10-20 s de retraso). Solo se descarga mientras esta pestaña está abierta y la casilla marcada.</div></section>
+  <div class="row" style="margin-top:10px"><button id="zn_edit">🎯 Marcar zonas sobre el directo</button></div>
+  <div id="zn_tools" style="display:none;margin-top:8px"><div class="mut" style="font-size:12px;margin-bottom:6px"><b style="color:#35d07f">Zona 1 (verde):</b> la parte del juego que se recorta y se muestra abajo; el movimiento se busca solo dentro de ella, como las zonas de un DVR. <b style="color:#ffe600">Zona 2 (amarilla):</b> tu cámara, que se recorta y se pone arriba. Arrastra para mover y tira de la esquina para cambiar el tamaño.</div>
+   <div class="row"><button id="zn_save" class="sel">Guardar zonas</button><button id="zn_det">🔍 Detectar cámara</button><button id="zn_clr1">Quitar zona 1</button><button id="zn_auto">Cámara automática</button>
+    <label class="chk" style="margin:0"><input type="checkbox" id="zn_lock" checked> Proporción fija de la zona 1</label></div><div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
+  <div class="mut" style="font-size:12px;margin-top:6px">«Directo oficial» es el reproductor de la propia plataforma (Twitch, Kick o YouTube): en vivo, sin retraso añadido. Los clips salen de la señal de clipper, que va unos segundos por detrás. Solo se carga mientras esta pestaña está abierta.</div></section>
 <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
   <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
   <div class="seg2" id="pv_layout" style="margin-top:10px"><button data-l="auto">Automático</button><button data-l="split">Cámara + gameplay</button><button data-l="fit">Completo</button></div>
   <div class="row" style="margin-top:10px"><button id="pv_now">Actualizar previa</button><label class="chk" style="margin:0"><input type="checkbox" id="pv_live"> Previa en vivo (cada ~12 s)</label></div>
-  <details id="camtool" style="margin-top:12px"><summary style="cursor:pointer;font-weight:600">📷 Marcar la cámara del streamer</summary>
-   <div class="mut" style="font-size:12px;margin:6px 0">Toma una imagen del directo y ajusta el rectángulo amarillo sobre tu cámara. Se guarda una vez y se usa en todos los clips y en la previa. Con «Autodetección» se busca sola en cada clip.</div>
-   <div class="camwrap" id="cam_wrap"><img id="cam_img" alt=""><div id="cam_rect" class="camrect" style="display:none"><b></b></div></div>
-   <div class="row"><button id="cam_snap">📸 Tomar imagen</button><button id="cam_det">🔍 Detectar</button><button id="cam_save" class="sel">Guardar cámara</button><button id="cam_auto">Autodetección</button></div>
-   <div class="mut" id="cam_msg" style="font-size:12px;margin-top:6px"></div></details>
+  
   <div class="mut" id="pv_msg" style="margin-top:6px;font-size:13px"></div>
   <div class="mut" style="font-size:12px;margin-top:4px">Muestra cómo quedaría un clip de los últimos 8 s con el diseño y los subtítulos actuales. Se genera en baja resolución; consume algo de CPU mientras está activada.</div></section>
 </div>
@@ -223,7 +232,8 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
    <label class="chk"><input type="checkbox" id="i_on"> Activada</label>
    <label>Proveedor <select id="i_prov"><option value="openai">Compatible con OpenAI (OpenAI, OpenRouter, Groq, Ollama, LM Studio…)</option><option value="anthropic">Anthropic (Claude)</option><option value="gemini">Google Gemini</option></select></label>
    <label>URL base <input id="i_url" placeholder="vacío = la del proveedor · p. ej. http://localhost:11434/v1"></label>
-   <label>Modelo <input id="i_model" placeholder="gpt-4o-mini · claude-haiku-5-5 · gemini-2.5-flash · llama3.1"></label>
+   <label>Modelo <input id="i_model" placeholder="Automático: se elige el mejor modelo disponible con tu clave"></label>
+   <div class="row" style="margin:-2px 0 6px"><button id="i_list">Ver modelos disponibles</button><select id="i_models" style="display:none;width:auto;margin:0"></select><span class="mut" id="i_sel" style="font-size:12px"></span></div>
    <label>Clave de API <input id="i_key" type="password" autocomplete="off"></label>
    <label class="chk"><input type="checkbox" id="i_clear"> Borrar la clave guardada</label>
    <label>Idioma de salida <input id="i_lang" placeholder="es"></label>
@@ -346,7 +356,7 @@ $("save").onclick=async()=>{
 function aiPatch(){const l={enabled:$("i_on").checked,provider:$("i_prov").value,base_url:$("i_url").value.trim(),model:$("i_model").value.trim(),language:$("i_lang").value.trim()||"es"};
  if($("i_key").value)l.api_key=$("i_key").value;if($("i_clear").checked)l.clear_api_key=true;return{llm:l,auto_metadata:$("i_auto").checked}}
 async function testAi(target,msgId){const m=$(msgId);m.className="mut";m.textContent="Guardando…";
- try{await $("save").onclick();m.className="mut";m.textContent="Probando…";const r=await api("/api/ai/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target})});m.innerHTML='<span style="color:var(--ok)">✔ '+esc(r.reply)+"</span>"}
+ try{await $("save").onclick();m.className="mut";m.textContent="Probando…";const r=await api("/api/ai/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target})});m.innerHTML='<span style="color:var(--ok)">✔ '+esc(r.reply)+(r.model?" · modelo: "+esc(r.model):"")+"</span>"}
  catch(e){m.innerHTML='<span class="err">'+esc(e.message)+"</span>"}}
 /* ---- actualizaciones ---- */
 let updPoll=null,updWasRunning=false;
@@ -374,7 +384,9 @@ $("sec_go").onclick=async()=>{const m=$("sec_msg");m.className="mut";
  try{await api("/api/auth/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current:$("sec_cur").value,new:$("sec_new").value})});
   m.innerHTML='<span style="color:var(--ok)">✔ Contraseña guardada</span>';$("sec_cur").value=$("sec_new").value=$("sec_new2").value="";loadSettings()}catch(e){m.className="err";m.textContent=e.message}};
 $("logout").onclick=async()=>{await fetch("/api/auth/logout",{method:"POST"});location.href="/login"};
-$("i_test").onclick=()=>testAi("llm","i_msg");$("a_test").onclick=()=>testAi("transcribe","a_msg");
+$("i_test").onclick=()=>testAi("llm","i_msg");
+$("i_list").onclick=async()=>{const m=$("i_sel");m.textContent="Consultando…";try{await $("save").onclick();const r=await api("/api/ai/models");const s=$("i_models");s.innerHTML='<option value="">Automático ('+esc(r.selected||"")+')</option>'+r.models.map(x=>`<option ${x===$("i_model").value?"selected":""}>${esc(x)}</option>`).join("");s.style.display="inline-block";m.textContent=r.auto?"En uso: "+r.selected+" (automático)":"En uso: "+r.selected}catch(e){m.className="err";m.textContent=e.message}};
+$("i_models").onchange=()=>{$("i_model").value=$("i_models").value};$("a_test").onclick=()=>testAi("transcribe","a_msg");
 $("settings").addEventListener("toggle",()=>{if($("settings").open)loadSettings()});
 
 const DEST={
@@ -478,7 +490,7 @@ $("src_url").oninput=()=>{const p=platOf($("src_url").value);$("src_plat").textC
 async function loadSource(){let c;try{c=await api("/api/settings")}catch{return}
  const t=c.source.type;srcType(["live","streamlink","ytdlp"].includes(t)?"live":t==="rtmp"?"rtmp":"file");
  if(["live","streamlink","ytdlp"].includes(t))$("src_url").value=c.source.url;$("src_url").oninput();$("src_file_in").value=c.source.file;
- document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode));CAM.rect=c.layout.facecam;camDraw()}
+ document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode));ZN.z1=c.layout.gameplay_zone;ZN.z2=c.layout.facecam;ZN.pct=c.layout.facecam_height_pct;window._srcUrl=c.source.url;znDraw()}
 const PUT=b=>({method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
 $("src_probe").onclick=async()=>{const m=$("src_msg"),u=$("src_url").value.trim();m.className="mut";if(!u){m.className="err";m.textContent="Pega un enlace.";return}m.textContent="Comprobando (puede tardar unos segundos)…";
  try{const r=await api("/api/source/probe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});
@@ -519,40 +531,56 @@ SBF.forEach(([id,k,t])=>{$(id).addEventListener(t==="n"?"input":"change",()=>{if
 $("sb_ok").onclick=async()=>{try{await api("/api/settings",PUT({subtitles:{reviewed:true}}));$("sb_msg").className="mut";$("sb_msg").innerHTML='<span style="color:var(--ok)">✔ Guardado: se usará en los clips automáticos.</span>';loadSubs();loadAuto()}catch(e){$("sb_msg").className="err";$("sb_msg").textContent=e.message}};
 $("sb_reset").onclick=()=>sbPut({font:"DejaVu Sans",font_size:84,outline:9,shadow:0,bold:true,uppercase:true,offset_y:0,position:"lower_third",primary_color:"#FFFFFF",highlight_color:"#FFE600",outline_color:"#000000",max_words_per_line:3,enabled:true});
 loadSubs();
-/* ---- marcar la cámara ---- */
-const CAM={rect:null};
-function camDraw(){const r=$("cam_rect");if(!CAM.rect){r.style.display="none";return}r.style.display="block";
- Object.assign(r.style,{left:CAM.rect.x*100+"%",top:CAM.rect.y*100+"%",width:CAM.rect.w*100+"%",height:CAM.rect.h*100+"%"})}
-function camSnap(){const i=$("cam_img");i.onerror=()=>{$("cam_msg").className="err";$("cam_msg").textContent="Aún no llega señal del directo."};i.onload=()=>{$("cam_msg").className="mut";$("cam_msg").textContent=CAM.rect?"Ajusta el rectángulo sobre tu cámara.":"Pulsa «Detectar» o dibuja la cámara arrastrando el rectángulo."};
- i.src="/api/live/frame?w=960&_="+Date.now();if(!CAM.rect)CAM.rect={x:.02,y:.02,w:.28,h:.37};camDraw()}
-$("camtool").addEventListener("toggle",()=>{if($("camtool").open)camSnap()});
-$("cam_snap").onclick=camSnap;
-$("cam_det").onclick=async()=>{const m=$("cam_msg");m.className="mut";m.textContent="Buscando la cámara…";
- try{const r=await api("/api/live/facecam/detect",{method:"POST"});if(r.facecam){CAM.rect=r.facecam;camDraw();m.textContent="Cámara detectada: ajusta el rectángulo si hace falta y pulsa «Guardar cámara»."}else{m.textContent="No se detectó una cámara superpuesta: dibújala a mano."}}catch(e){m.className="err";m.textContent=e.message}};
-$("cam_save").onclick=async()=>{const m=$("cam_msg");if(!CAM.rect)return;const q={};for(const k in CAM.rect)q[k]=+CAM.rect[k].toFixed(4);
- try{await api("/api/settings",PUT({layout:{mode:"split",facecam:q}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Cámara guardada. Diseño «Cámara + gameplay» activado.</span>';loadSource();pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};
-$("cam_auto").onclick=async()=>{try{await api("/api/settings",PUT({layout:{facecam:null}}));$("cam_msg").textContent="Se buscará la cámara automáticamente en cada clip.";loadSource();pvRefresh(true)}catch(e){$("cam_msg").textContent=e.message}};
-(()=>{const r=$("cam_rect"),w=$("cam_wrap");let m=null;
- r.addEventListener("pointerdown",e=>{const b=w.getBoundingClientRect();m={rs:e.target.tagName==="B",sx:e.clientX,sy:e.clientY,r0:{...CAM.rect},W:b.width,H:b.height};r.setPointerCapture(e.pointerId);e.preventDefault()});
- r.addEventListener("pointermove",e=>{if(!m)return;const dx=(e.clientX-m.sx)/m.W,dy=(e.clientY-m.sy)/m.H,a=m.r0,c=(v,l,h)=>Math.min(Math.max(v,l),h);
-  if(m.rs){CAM.rect.w=c(a.w+dx,.06,1-a.x);CAM.rect.h=c(a.h+dy,.06,1-a.y)}else{CAM.rect.x=c(a.x+dx,0,1-a.w);CAM.rect.y=c(a.y+dy,0,1-a.h)}camDraw()});
- const up=()=>{m=null};r.addEventListener("pointerup",up);r.addEventListener("pointercancel",up)})();
 /* ---- directo en vivo (HLS) ---- */
+/* ---- reproductor oficial + zonas ---- */
+const ZN={z1:null,z2:null,on:false,pct:34};let LVMODE="official",lvFrame="";
+function embedUrl(u){try{const U=new URL(u),h=U.hostname.toLowerCase(),p=U.pathname.split("/").filter(Boolean);
+ if(h.endsWith("twitch.tv")&&p[0]&&!["videos","directory","video"].includes(p[0]))return`https://player.twitch.tv/?channel=${encodeURIComponent(p[0])}&parent=${location.hostname}&muted=true&autoplay=true`;
+ if(h.endsWith("kick.com")&&p[0]&&!["video","videos","categories"].includes(p[0]))return`https://player.kick.com/${encodeURIComponent(p[0])}?autoplay=true&muted=true`;
+ if(h.endsWith("youtube.com")||h==="youtu.be"){const id=h==="youtu.be"?p[0]:(U.searchParams.get("v")||(p[0]==="live"?p[1]:null));if(id)return`https://www.youtube.com/embed/${id}?autoplay=1&mute=1`;if(p[0]==="channel"&&p[1])return`https://www.youtube.com/embed/live_stream?channel=${p[1]}&autoplay=1&mute=1`}}catch{}return null}
+document.querySelectorAll('input[name=lvs]').forEach(r=>r.onchange=()=>{LVMODE=r.value;lvTick(window._live)});
+function znRatio(){const v=$("lv_vid");return v.videoWidth&&v.videoHeight?v.videoWidth/v.videoHeight:16/9}
+function znAspect(){return 1080/(1920*(1-ZN.pct/100))}
+function znDraw(){for(const k of ["z1","z2"]){const e=$("zn_"+k[1]),r=ZN[k];if(!ZN.on||!r){e.style.display="none";continue}e.style.display="block";Object.assign(e.style,{left:r.x*100+"%",top:r.y*100+"%",width:r.w*100+"%",height:r.h*100+"%"})}}
+function znInit(){const r=znRatio();if(!ZN.z1){const w=.5,h=Math.min(.95,w*r/znAspect());ZN.z1={x:.25,y:Math.max(0,(1-h)/2),w,h}}if(!ZN.z2)ZN.z2={x:.02,y:.02,w:.28,h:.37}}
+function znSet(on){ZN.on=on;$("zn_tools").style.display=on?"block":"none";$("zn_edit").textContent=on?"✖ Cerrar marcado de zonas":"🎯 Marcar zonas sobre el directo";
+ if(on){LVMODE="clipper";document.querySelector('input[name=lvs][value=clipper]').checked=true;$("lv_vid").controls=false;znInit()}else{$("lv_vid").controls=true}
+ $("lv_srcrow").style.opacity=on?.5:1;lvTick(window._live);znDraw()}
+$("zn_edit").onclick=()=>znSet(!ZN.on);
+(()=>{const box=$("lv_box");let m=null;
+ for(const k of ["z1","z2"]){const e=$("zn_"+k[1]);
+  e.addEventListener("pointerdown",ev=>{if(!ZN.on)return;const b=box.getBoundingClientRect();m={k,rs:ev.target.tagName==="B",sx:ev.clientX,sy:ev.clientY,r0:{...ZN[k]},W:b.width,H:b.height};e.setPointerCapture(ev.pointerId);ev.preventDefault()});
+  e.addEventListener("pointermove",ev=>{if(!m||m.k!==k)return;const dx=(ev.clientX-m.sx)/m.W,dy=(ev.clientY-m.sy)/m.H,a=m.r0,c=(v,l,h)=>Math.min(Math.max(v,l),h),r=ZN[k];
+   if(m.rs){if(k==="z1"&&$("zn_lock").checked){const R=znRatio(),A=znAspect();let w=c(a.w+dx,.08,1-a.x),h=w*R/A;if(h>1-a.y){h=1-a.y;w=h*A/R}r.w=w;r.h=h}else{r.w=c(a.w+dx,.06,1-a.x);r.h=c(a.h+dy,.06,1-a.y)}}
+   else{r.x=c(a.x+dx,0,1-a.w);r.y=c(a.y+dy,0,1-a.h)}znDraw()});
+  const up=()=>{m=null};e.addEventListener("pointerup",up);e.addEventListener("pointercancel",up)}})();
+const rnd=r=>r&&Object.fromEntries(Object.entries(r).map(([k,v])=>[k,+v.toFixed(4)]));
+$("zn_save").onclick=async()=>{const m=$("zn_msg");try{await api("/api/settings",PUT({layout:{mode:"split",facecam:rnd(ZN.z2),gameplay_zone:rnd(ZN.z1)}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Zonas guardadas. Diseño «Cámara + gameplay» activado.</span>';loadSource();pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};
+$("zn_det").onclick=async()=>{const m=$("zn_msg");m.className="mut";m.textContent="Buscando la cámara…";try{const r=await api("/api/live/facecam/detect",{method:"POST"});if(r.facecam){ZN.z2=r.facecam;znDraw();m.textContent="Cámara detectada: ajústala si hace falta y pulsa «Guardar zonas»."}else m.textContent="No se detectó: dibújala a mano."}catch(e){m.className="err";m.textContent=e.message}};
+$("zn_clr1").onclick=async()=>{ZN.z1=null;try{await api("/api/settings",PUT({layout:{gameplay_zone:null}}));$("zn_msg").textContent="Zona 1 quitada: se usa el centro del juego.";znInit();znDraw();pvRefresh(true)}catch(e){$("zn_msg").textContent=e.message}};
+$("zn_auto").onclick=async()=>{ZN.z2=null;try{await api("/api/settings",PUT({layout:{facecam:null}}));$("zn_msg").textContent="La cámara se buscará sola en cada clip.";znInit();znDraw();pvRefresh(true)}catch(e){$("zn_msg").textContent=e.message}};
+
 let HLS=null,lvStart=0;
 function lvStop(){if(HLS){try{HLS.destroy()}catch{}HLS=null}const v=$("lv_vid");v.removeAttribute("src");try{v.load()}catch{}}
 function lvStart_(){
  const v=$("lv_vid"),url="/api/live/stream.m3u8";if(HLS||!$("lv_on").checked)return;
- if(window.Hls&&Hls.isSupported()){HLS=new Hls({liveSyncDurationCount:2,liveMaxLatencyDurationCount:6,maxBufferLength:20,manifestLoadingMaxRetry:8,levelLoadingMaxRetry:8,fragLoadingMaxRetry:8});
+ if(window.Hls&&Hls.isSupported()){HLS=new Hls({liveSyncDurationCount:1,liveMaxLatencyDurationCount:3,maxLiveSyncPlaybackRate:1.15,maxBufferLength:20,manifestLoadingMaxRetry:8,levelLoadingMaxRetry:8,fragLoadingMaxRetry:8});
   HLS.on(Hls.Events.MANIFEST_PARSED,()=>{v.play().catch(()=>{});$("lv_off").style.display="none"});
   HLS.on(Hls.Events.ERROR,(e,d)=>{if(d.fatal){lvStop();$("lv_off").style.display="grid";$("lv_off").textContent="Reconectando con el directo…"}});
   HLS.loadSource(url);HLS.attachMedia(v)}
  else if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=url;v.play().catch(()=>{});$("lv_off").style.display="none"}
  else{$("lv_off").textContent="Tu navegador no puede reproducir el directo en vivo."}}
-function lvTick(live){const view=$("v_live").classList.contains("on"),on=$("lv_on").checked&&view&&live;
+function lvTick(live){const view=$("v_live").classList.contains("on"),want=$("lv_on").checked&&view,emb=window._srcUrl?embedUrl(window._srcUrl):null;
+ const official=want&&LVMODE==="official"&&emb&&!ZN.on;$("lv_srcrow").style.display=emb?"flex":"none";
+ const fr=$("lv_frame");
+ if(official){$("lv_vid").style.display="none";fr.style.display="block";if(lvFrame!==emb){fr.src=emb;lvFrame=emb}$("lv_off").style.display="none";if(HLS)lvStop();
+  const b=$("lv_badge");b.className="chip2 live";b.textContent="EN VIVO · OFICIAL";$("lv_info").textContent="";return}
+ if(lvFrame){fr.src="about:blank";lvFrame="";}fr.style.display="none";$("lv_vid").style.display="block";
+ const on=want&&live;
  if(on&&!HLS)lvStart_();if(!on&&HLS){lvStop();$("lv_off").style.display="grid";$("lv_off").textContent=live?"Directo en pausa (casilla desmarcada o pestaña oculta).":"Esperando señal del directo…"}
  if(!live)$("lv_off").style.display="grid",$("lv_off").textContent="Esperando señal del directo…";
- const b=$("lv_badge");b.className="chip2"+(on&&HLS?" live":"");b.textContent=on&&HLS?"EN VIVO":(live?"pausado":"sin señal");
- const v=$("lv_vid");let lat="";if(HLS&&HLS.latency)lat="retraso ≈ "+Math.round(HLS.latency)+" s";$("lv_info").textContent=lat}
+ const b=$("lv_badge");b.className="chip2"+(on&&HLS?" live":"");b.textContent=on&&HLS?"EN VIVO · clipper":(live?"pausado":"sin señal");
+ let lat="";if(HLS&&HLS.latency)lat="retraso ≈ "+Math.round(HLS.latency)+" s";$("lv_info").textContent=lat}
 $("lv_on").onchange=()=>lvTick(window._live);
 $("lv_mute").onclick=()=>{const v=$("lv_vid");v.muted=!v.muted;$("lv_mute").textContent=v.muted?"🔇 Activar sonido":"🔊 Silenciar"};
 $("lv_edge").onclick=()=>{const v=$("lv_vid");if(HLS&&HLS.liveSyncPosition)v.currentTime=HLS.liveSyncPosition;v.play().catch(()=>{})};

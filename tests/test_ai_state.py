@@ -81,8 +81,9 @@ def test_errors_are_clear_and_never_leak_key():
         assert "SECRETKEY" not in str(e.value)
     with pytest.raises(ai.AiError, match="desactivada"):
         ai.complete(llm(enabled=False), "s", "u")
-    with pytest.raises(ai.AiError, match="modelo"):
-        ai.complete(llm(model=""), "s", "u")
+    with pytest.raises(ai.AiError, match="ningún modelo"):
+        ai._model_cache.clear()
+        ai.complete(llm(model=""), "s", "u", http=mock(lambda r: httpx.Response(200, json={"data": []})))
     with pytest.raises(ai.AiError, match="transcripción"):
         ai.suggest(llm(), "   ")
 
@@ -241,3 +242,71 @@ def test_gemini_request_and_parse():
         ai.complete(cfg, "s", "u", http=bad)
     with pytest.raises(ai.AiError, match="Falta la clave"):
         ai.complete(llm(provider="gemini", api_key="", model="m"), "s", "u", http=mock(lambda r: httpx.Response(200)))
+
+
+# ------------------------------------------------------------------ elección automática del modelo
+def test_pick_model_prefers_fast_stable_text_models():
+    g = ["gemini-1.5-pro", "gemini-2.0-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-image", "text-embedding-004", "gemini-2.5-pro"]
+    assert ai.pick_model("gemini", g) == "gemini-2.5-flash"
+    assert ai.pick_model("gemini", ["gemini-3-flash-preview", "gemini-2.5-flash-preview-05", "gemini-exp-1206"]) == "gemini-3-flash-preview"   # sin estables: el más nuevo
+    assert ai.pick_model("gemini", ["gemini-9-flash", "gemini-9-flash-preview"]) == "gemini-9-flash"                                        # prefiere estable
+    assert ai.pick_model("openai", ["whisper-1", "dall-e-3", "gpt-4o", "gpt-4o-mini", "text-embedding-3-small"]) == "gpt-4o-mini"
+    assert ai.pick_model("openai", ["llama3.1:8b", "qwen2.5:7b", "nomic-embed-text"]) in ("llama3.1:8b", "qwen2.5:7b")                      # Ollama
+    a = ["claude-opus-4-1-20250805", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-haiku-3-5-20241022"]
+    assert ai.pick_model("anthropic", a) == "claude-haiku-4-5-20251001"                                                                     # haiku más reciente
+    assert ai.pick_model("anthropic", ["claude-opus-4-1", "claude-sonnet-4-5"]) == "claude-sonnet-4-5"                                      # sin haiku: sonnet
+    assert ai.pick_model("openai", ["text-embedding-3-small", "whisper-1"]) is None
+
+
+def test_model_empty_is_resolved_listed_once_and_used():
+    ai._model_cache.clear()
+    calls = {"list": 0, "gen": []}
+
+    def h(req):
+        if req.method == "GET":
+            calls["list"] += 1
+            assert req.headers["x-goog-api-key"] == "K"
+            return httpx.Response(200, json={"models": [
+                {"name": "models/gemini-2.5-pro", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent", "countTokens"]},
+                {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]}]})
+        calls["gen"].append(str(req.url))
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "OK"}]}}]})
+
+    cfg = llm(provider="gemini", base_url="", model="")
+    assert ai.ping(cfg, http=mock(h)) == "OK" and ai.ping(cfg, http=mock(h)) == "OK"
+    assert calls["list"] == 1                                                  # la lista se pide una sola vez
+    assert calls["gen"][0].endswith("/models/gemini-2.5-flash:generateContent")
+
+
+def test_configured_model_that_disappeared_falls_back_automatically():
+    ai._model_cache.clear()
+    seen = []
+
+    def h(req):
+        if req.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": "gpt-4o-mini"}, {"id": "whisper-1"}]})
+        m = json.loads(req.content)["model"]
+        seen.append(m)
+        if m == "gpt-viejo":
+            return httpx.Response(404, text="The model `gpt-viejo` does not exist")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+
+    assert ai.ping(llm(model="gpt-viejo"), http=mock(h)) == "OK" and seen == ["gpt-viejo", "gpt-4o-mini"]
+
+
+def test_models_endpoint_and_test_reports_model(web, monkeypatch):
+    ai._model_cache.clear()
+    c, cfg, eng, tp = web
+    cfg.ai.llm = llm(provider="openai", base_url="http://localhost:11434/v1", model="")
+
+    def h(req):
+        if req.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": "llama3.1"}, {"id": "nomic-embed-text"}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+
+    monkeypatch.setattr(ai, "_client", lambda http: mock(h))
+    r = c.get("/api/ai/models").json()
+    assert r == {"models": ["llama3.1", "nomic-embed-text"], "selected": "llama3.1", "auto": True}
+    t = c.post("/api/ai/test", json={"target": "llm"}).json()
+    assert t["ok"] is True and t["model"] == "llama3.1"

@@ -64,7 +64,7 @@ class Engine:
         self._last_auto = -1e9
         self._auto_times: deque[float] = deque(maxlen=200)     # instantes (reloj) de los clips automáticos aceptados
         self.energy, self.cadence, self.keywords = EnergyDetector(cfg), CadenceDetector(cfg), KeywordMatcher(cfg)
-        self.visual = VisualDetector(cfg, cam=cfg.layout.facecam)
+        self.visual = VisualDetector(cfg, cam=cfg.layout.facecam, zone=cfg.layout.gameplay_zone)
         self._pending: list[Trigger] = []                     # disparos recientes que aún se están puntuando como un solo momento
         self._pending_since = 0.0
         self._plock = threading.Lock()
@@ -114,7 +114,7 @@ class Engine:
         if "triggers" in changed:
             self.keywords = KeywordMatcher(self.cfg)
         if "layout" in changed:
-            self.visual.cam = self.cfg.layout.facecam
+            self.visual.cam, self.visual.zone = self.cfg.layout.facecam, self.cfg.layout.gameplay_zone
         if "transcribe" in changed or "compute" in changed:
             if self.cfg.transcribe.enabled:
                 if self.transcriber is None:

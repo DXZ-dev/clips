@@ -16,8 +16,8 @@ FPS = 2.0
 
 
 class VisualDetector:
-    def __init__(self, cfg: Config, cam: RectCfg | None = None, person_detector=None):
-        self.cfg, self.cam = cfg, cam
+    def __init__(self, cfg: Config, cam: RectCfg | None = None, person_detector=None, zone: RectCfg | None = None):
+        self.cfg, self.cam, self.zone = cfg, cam, zone
         self.prev = None
         self.game_hist: deque[float] = deque(maxlen=120)       # ~60 s de energía de movimiento del juego
         self.cam_hist: deque[float] = deque(maxlen=120)        # ~60 s de movimiento en la cámara del streamer
@@ -53,8 +53,16 @@ class VisualDetector:
                     cam_e = float(mask[y0:y1, x0:x1].mean()) if (y1 > y0 and x1 > x0) else None
                     mask = mask.copy()
                     mask[y0:y1, x0:x1] = False
-                game_e = float(mask.mean())
-                cx = motion_center(gray, self.prev, cam_px, self.cfg.reframe.center_bias)
+                zone_px = None
+                if self.zone:                                         # solo cuenta el movimiento dentro de la zona marcada
+                    zx0, zy0, zx1, zy1 = (int(self.zone.x * w), int(self.zone.y * h), int((self.zone.x + self.zone.w) * w) + 1,
+                                          int((self.zone.y + self.zone.h) * h) + 1)
+                    keep = np.zeros_like(mask)
+                    keep[zy0:zy1, zx0:zx1] = True
+                    mask = mask & keep
+                    zone_px = (zx0, zy0, zx1, zy1)
+                game_e = float(mask.sum()) / max(1.0, float(keep.sum()) if self.zone else float(mask.size))
+                cx = motion_center(gray, self.prev, cam_px, self.cfg.reframe.center_bias, zone_px)
                 centrality = 1 - abs((cx if cx is not None else 0.5) - 0.5) * 2
                 out += self._check("action", t, game_e, self.game_hist, floor=0.03, ratio=2.5, refractory=6.0,
                                    detail="movimiento en pantalla", extra=0.3 * centrality)

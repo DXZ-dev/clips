@@ -102,6 +102,7 @@ class LayoutCfg(BaseModel):
     facecam_height_pct: int = Field(34, ge=15, le=60)  # % de la altura vertical que ocupa la cámara
     gameplay: Literal["center", "cover", "contain"] = "center"   # center = recorta el centro del gameplay (llena el ancho); cover = recorta siguiendo la acción; contain = completo + fondo desenfocado
     gameplay_x: float | None = Field(None, ge=0, le=1)   # centro horizontal del recorte (0..1); None = centro, esquivando la cámara
+    gameplay_zone: RectCfg | None = None      # zona 1 marcada a mano: de aquí sale el gameplay y solo aquí se busca movimiento
     blur_strength: int = Field(28, ge=4, le=60)
 
 

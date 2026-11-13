@@ -156,7 +156,7 @@ def find_highlights(cfg: Config, src: str, use_transcription: bool = True, progr
         from .ffutil import probe
         from .tracking import read_frames
         info = probe(src)
-        vis = VisualDetector(cfg, cam=cfg.layout.facecam)
+        vis = VisualDetector(cfg, cam=cfg.layout.facecam, zone=cfg.layout.gameplay_zone)
         h = max(2, int(round(640 * info.height / info.width)) // 2 * 2)
         for i, bgr in enumerate(read_frames(["-i", src], FPS, 640, h)):
             if cancelled():

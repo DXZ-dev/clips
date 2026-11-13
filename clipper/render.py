@@ -54,9 +54,24 @@ def _cam_crop(info: VideoInfo, rect: RectCfg, face: tuple[float, float] | None, 
     return _even(px), _even(py), pw, ph
 
 
-def _center_crop(info: VideoInfo, rect: RectCfg | None, out_w: int, out_h: int, focus_x: float | None = None) -> tuple[int, int, int, int]:
+def _zone_crop(info: VideoInfo, zone: RectCfg, out_w: int, out_h: int) -> tuple[int, int, int, int]:
+    """Recorte (cw, ch, x, y) de proporción out_w:out_h centrado DENTRO de la zona marcada a mano."""
+    zx, zy = zone.x * info.width, zone.y * info.height
+    zw, zh = max(2.0, zone.w * info.width), max(2.0, zone.h * info.height)
+    aspect = out_w / out_h
+    if zw / zh > aspect:
+        ch, cw = zh, zh * aspect
+    else:
+        cw, ch = zw, zw / aspect
+    return _even(cw), _even(ch), _even(zx + (zw - cw) / 2), _even(zy + (zh - ch) / 2)
+
+
+def _center_crop(info: VideoInfo, rect: RectCfg | None, out_w: int, out_h: int, focus_x: float | None = None,
+                 zone: RectCfg | None = None) -> tuple[int, int, int, int]:
     """Recorte (cw, ch, x, y) de proporción out_w:out_h centrado en el fotograma. Si se conoce la cámara superpuesta, el recorte
     se desplaza lo justo para no incluirla (en el resultado la cámara ya va arriba: no debe aparecer dos veces)."""
+    if zone is not None:
+        return _zone_crop(info, zone, out_w, out_h)
     aspect = out_w / out_h
     if info.height * aspect <= info.width:
         cw, ch = _even(info.height * aspect), _even(info.height)
@@ -100,7 +115,7 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         px, py, pw, ph = _cam_crop(info, rect, face, W, cam_h)
         cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={W}:{cam_h}:flags=lanczos[cam]"
         if spec.gameplay == "center":
-            cw, ch, gx, gy = _center_crop(info, rect, W, game_h, spec.gameplay_x)
+            cw, ch, gx, gy = _center_crop(info, rect, W, game_h, spec.gameplay_x, spec.gameplay_zone)
             game = f"[s2]crop={cw}:{ch}:{gx}:{gy},scale={W}:{game_h}:flags=lanczos[game]"
         elif spec.gameplay == "cover":
             if "game_path" not in cache:
@@ -109,6 +124,9 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
             g = path.geom
             game = (f"[s2]crop=w={g.crop_w}:h={g.crop_h}:x='{path.static_x() if static else path.x_expr()}':y={g.y},"
                     f"scale={W}:{game_h}:flags=lanczos[game]")
+        elif spec.gameplay_zone is not None:                       # «completo»: se muestra entera la zona marcada, con fondo desenfocado
+            zc = _zone_crop(info, spec.gameplay_zone, spec.gameplay_zone.w * info.width, spec.gameplay_zone.h * info.height)
+            game = f"[s2]crop={zc[0]}:{zc[1]}:{zc[2]}:{zc[3]}[zc];" + _contain("[zc]", "[game]", W, game_h, cfg.layout.blur_strength)
         else:
             game = _contain("[s2]", "[game]", W, game_h, cfg.layout.blur_strength)
         order = "[cam][game]" if spec.facecam_position == "top" else "[game][cam]"
@@ -117,7 +135,7 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         return graph, (cam_h if spec.facecam_position == "top" else game_h), note
 
     if "path" not in cache:
-        cache["path"] = analyze(input_args, info, cfg)           # auto: sigue al hablante / acción
+        cache["path"] = analyze(input_args, info, cfg, zone=spec.gameplay_zone)   # auto: sigue al hablante / acción (dentro de la zona)
     path = cache["path"]
     g = path.geom
     graph = (f"[0:v]crop=w={g.crop_w}:h={g.crop_h}:x='{path.static_x() if static else path.x_expr()}':y={g.y},"

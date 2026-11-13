@@ -170,7 +170,8 @@ class SpeakerSelector:
 
 
 # ------------------------------------------------------------------ movimiento
-def motion_center(gray, prev, mask_px: tuple[int, int, int, int] | None = None, center_bias: float = 0.0) -> float | None:
+def motion_center(gray, prev, mask_px: tuple[int, int, int, int] | None = None, center_bias: float = 0.0,
+                  keep_px: tuple[int, int, int, int] | None = None) -> float | None:
     """Dónde está la acción (x, 0..1) entre dos fotogramas; None si casi no hay movimiento.
 
     Se toma el PICO del movimiento (no la media: con dos acciones separadas la media cae en un hueco vacío) y se centra en su
@@ -181,8 +182,13 @@ def motion_center(gray, prev, mask_px: tuple[int, int, int, int] | None = None, 
     if mask_px:                       # zona a ignorar (p. ej. la cámara del streamer)
         x0, y0, x1, y1 = mask_px
         d[y0:y1, x0:x1] = 0
+    if keep_px:                       # zona de interés (como las zonas de movimiento de un DVR): fuera de ella se ignora todo
+        x0, y0, x1, y1 = keep_px
+        keep = np.zeros_like(d)
+        keep[y0:y1, x0:x1] = 1
+        d = d * keep
     mask = (d > 18).astype(np.float32)
-    if mask.mean() < 0.002:
+    if mask.mean() < 0.0005 if keep_px else mask.mean() < 0.002:
         return None
     cols = mask.sum(axis=0)
     w = gray.shape[1]
@@ -314,7 +320,8 @@ class CropPath:
 
 
 def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | None = None, out_h: int | None = None,
-            ignore: "RectCfg | None" = None, faces: bool = True, people: bool | None = None) -> CropPath:
+            ignore: "RectCfg | None" = None, faces: bool = True, people: bool | None = None,
+            zone: "RectCfg | None" = None) -> CropPath:
     """Trayectoria de la cámara virtual. out_w/out_h = proporción del recorte (por defecto 9:16 completo);
     `ignore` = rectángulo normalizado que no cuenta como acción; faces=False sigue solo el movimiento.
     Prioridad del objetivo: rostro/hablante → personaje en pantalla → movimiento (con sesgo al centro) → punto de vista central."""
@@ -334,6 +341,9 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | No
     mask_px = None
     if ignore:
         mask_px = (int(ignore.x * aw), int(ignore.y * ah), int((ignore.x + ignore.w) * aw) + 1, int((ignore.y + ignore.h) * ah) + 1)
+    zone_px = None
+    if zone:
+        zone_px = (int(zone.x * aw), int(zone.y * ah), int((zone.x + zone.w) * aw) + 1, int((zone.y + zone.h) * ah) + 1)
     pdet = PersonDetector() if people else None
     person_x: float | None = None
     targets: list[float | None] = []
@@ -351,7 +361,7 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | No
                 if person_x is not None:
                     targets.append(person_x)
                 else:
-                    targets.append(motion_center(gray, prev, mask_px, r.center_bias))
+                    targets.append(motion_center(gray, prev, mask_px, r.center_bias, zone_px))
             prev = gray
     finally:
         if hasattr(det, "close"):
@@ -361,6 +371,10 @@ def analyze(input_args: list[str], info: VideoInfo, cfg: Config, out_w: int | No
     n = len(targets)
 
     cx = smooth_targets(targets, r.analysis_fps, geom.crop_w / info.width, cfg)
+    if zone:                                                  # el recorte no sale de la zona marcada
+        half = geom.crop_w / info.width / 2
+        lo, hi = zone.x + half, zone.x + zone.w - half
+        cx = [min(max(c, lo), hi) for c in cx] if lo <= hi else [zone.x + zone.w / 2] * len(cx)
     log.info("Seguimiento: %d muestras, detector=%s", n, type(det).__name__)
     return CropPath(r.analysis_fps, cx, geom)
 

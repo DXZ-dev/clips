@@ -501,11 +501,19 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
             transcript = transcript or meta.get("transcript", "")
         return _ai(ai.suggest, engine.cfg.ai.llm, transcript, meta.get("reason", ""), meta.get("detail", ""))
 
+    @app.get("/api/ai/models")
+    def ai_models():
+        """Modelos de texto disponibles con la clave configurada y cuál se usará (el elegido a mano o el mejor automático)."""
+        cfg_llm = engine.cfg.ai.llm
+        ids = _ai(ai.list_models, cfg_llm)
+        return {"models": sorted(ids), "selected": cfg_llm.model or ai.pick_model(cfg_llm.provider, ids), "auto": not cfg_llm.model}
+
     @app.post("/api/ai/test")
     def ai_test(req: TestRequest):
         """Comprueba la conexión con la IA configurada (envía una petición mínima)."""
         if req.target == "llm":
-            return {"ok": True, "reply": _ai(ai.ping, engine.cfg.ai.llm)}
+            reply = _ai(ai.ping, engine.cfg.ai.llm)
+            return {"ok": True, "reply": reply, "model": _ai(ai.resolve_model, engine.cfg.ai.llm)}
         if req.target == "transcribe":
             import numpy as np
             from ..detect.api_transcriber import transcribe_api

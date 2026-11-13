@@ -212,3 +212,57 @@ def test_selftest_passes_on_this_machine(cfg):
     lines = []
     assert selftest.run(cfg, out=lines.append) == 0, "\n".join(lines)
     assert any("clip desde el buffer" in l and "OK" in l for l in lines)
+
+
+# ------------------------------------------------------------------ zona 1 (gameplay) marcada a mano
+def test_zone_crop_geometry_and_render(cfg, source, tmp_path):
+    from clipper.render import _zone_crop, render_spec
+    from clipper.ffutil import VideoInfo
+    info = VideoInfo(1920, 1080, 30, 10)
+    zone = RectCfg(x=0.30, y=0.10, w=0.50, h=0.80)                       # 960x864 px
+    cw, ch, x, y = _zone_crop(info, zone, 1080, 1267)                    # proporción de salida del hueco de gameplay
+    assert abs(cw / ch - 1080 / 1267) < 0.01
+    assert 0.30 * 1920 - 2 <= x and x + cw <= 0.80 * 1920 + 2 and 0.10 * 1080 - 2 <= y and y + ch <= 0.90 * 1080 + 2   # dentro de la zona
+    for mode in ("center", "contain"):
+        spec = EditSpec(layout="split", gameplay=mode, facecam=RectCfg(x=0.0, y=0.0, w=0.28, h=0.37),
+                        gameplay_zone=RectCfg(x=0.3, y=0.1, w=0.5, h=0.8), trim_start=0.5, trim_end=3.5)
+        meta = render_spec(cfg, source, spec, tmp_path / f"z_{mode}.mp4")
+        i = probe(str(tmp_path / f"z_{mode}.mp4"))
+        assert (i.width, i.height) == (1080, 1920) and meta["layout"] == "split"
+    meta = render_spec(cfg, source, EditSpec(layout="auto", gameplay_zone=RectCfg(x=0.1, y=0.0, w=0.5, h=1.0)), tmp_path / "za.mp4")
+    assert probe(str(tmp_path / "za.mp4")).height == 1920
+
+
+def test_motion_only_counts_inside_the_zone():
+    import numpy as np
+    from clipper.config import Config as Cfg
+    from clipper.detect.visual import VisualDetector
+    cfg = Cfg()
+    cfg.reframe.track_people = False
+
+    def run(zone):
+        det = VisualDetector(cfg, zone=zone)
+        base = np.full((180, 320, 3), 90, np.uint8)
+        frames = [base.copy() for _ in range(30)]                         # calentamiento: escena quieta
+        moving = base.copy()
+        moving[40:140, 10:80] = 255                                       # mucho movimiento a la IZQUIERDA
+        return det.feed(frames + [moving], 0.0)
+
+    assert any(t.kind == "action" for t in run(None))                      # sin zona: se detecta
+    assert not any(t.kind == "action" for t in run(RectCfg(x=0.5, y=0.0, w=0.5, h=1.0)))   # zona a la derecha: se ignora
+    assert any(t.kind == "action" for t in run(RectCfg(x=0.0, y=0.0, w=0.4, h=1.0)))       # zona sobre el movimiento: cuenta
+
+
+def test_zone_settings_roundtrip(tmp_path):
+    from fastapi.testclient import TestClient
+    from clipper.engine import Engine
+    from clipper.web.app import create_app
+    c0 = Config()
+    c0.buffer.dir, c0.clip.output_dir, c0.transcribe.enabled = str(tmp_path / "b"), str(tmp_path / "o"), False
+    eng = Engine(c0, data_dir=tmp_path)
+    c = TestClient(create_app(eng, manage_engine=False), base_url="http://localhost")
+    z = {"x": 0.3, "y": 0.1, "w": 0.5, "h": 0.8}
+    r = c.put("/api/settings", json={"layout": {"mode": "split", "gameplay_zone": z, "facecam": {"x": 0, "y": 0, "w": 0.28, "h": 0.37}}})
+    assert r.status_code == 200 and c0.layout.gameplay_zone.w == 0.5 and eng.visual.zone.x == 0.3        # el detector visual la recibe
+    assert c.put("/api/settings", json={"layout": {"gameplay_zone": {"x": 0.8, "y": 0, "w": 0.5, "h": 1}}}).status_code == 422
+    assert c.put("/api/settings", json={"layout": {"gameplay_zone": None}}).status_code == 200 and eng.visual.zone is None
