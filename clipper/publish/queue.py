@@ -104,6 +104,13 @@ class PublishQueue:
         self._set(pid, title=title, description=desc)
         return self.get(pid)
 
+    def drop_clip(self, clip: str) -> int:
+        """Quita de la cola las entradas aún no publicadas de un clip que se ha borrado (las publicadas se conservan como historial)."""
+        with self.lock:
+            cur = self.db.execute("DELETE FROM publications WHERE clip=? AND status IN ('pending_review','queued','failed','rejected')", (clip,))
+            self.db.commit()
+        return cur.rowcount
+
     def clip_path(self, clip: str) -> Path:
         if Path(clip).name != clip:
             raise ValueError("nombre de clip inválido")

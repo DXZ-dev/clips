@@ -103,7 +103,11 @@ class LayoutCfg(BaseModel):
     gameplay: Literal["center", "cover", "contain"] = "center"   # center = recorta el centro del gameplay (llena el ancho); cover = recorta siguiendo la acción; contain = completo + fondo desenfocado
     gameplay_x: float | None = Field(None, ge=0, le=1)   # centro horizontal del recorte (0..1); None = centro, esquivando la cámara
     gameplay_zone: RectCfg | None = None      # zona 1 marcada a mano: de aquí sale el gameplay y solo aquí se busca movimiento
-    cam_follow: bool = True                   # la cámara de arriba sigue al rostro fotograma a fotograma (con suavizado)
+    panels: Literal["cards", "flush"] = "cards"   # cards = dos pantallas independientes (tarjetas redondeadas sobre fondo desenfocado); flush = pegadas
+    panel_margin: int = Field(36, ge=0, le=120)   # margen exterior de las tarjetas (px sobre 1080x1920)
+    panel_gap: int = Field(28, ge=0, le=120)      # hueco entre las dos pantallas
+    panel_radius: int = Field(40, ge=0, le=120)   # redondeo de las esquinas
+    cam_follow: bool = True                   # el encuadre del streamer sigue al rostro, con calma: solo se recoloca si te sales de la zona cómoda
     cam_zoom: float = Field(1.15, ge=1.0, le=2.5)   # zoom sobre el rostro; da margen para que la ventana se mueva con él
     blur_strength: int = Field(28, ge=4, le=60)
 

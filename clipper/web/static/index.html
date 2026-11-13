@@ -20,7 +20,7 @@ button:disabled{opacity:.5;cursor:not-allowed}.row{display:flex;gap:8px;flex-wra
 #events{max-height:220px;overflow:auto;font-size:13px}.ev{padding:3px 0;border-bottom:1px solid var(--line)}.ev b{color:var(--ac);font-weight:600}
 .err{color:var(--bad)}#tr{font-style:italic;color:var(--mut);min-height:40px}
 #clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
-.clip video{width:100%;aspect-ratio:9/16;background:#000;border-radius:8px}.clip small{display:block;color:var(--mut)}
+.clip{position:relative}.selbox{position:absolute;top:6px;left:6px;z-index:2;background:rgba(0,0,0,.6);border-radius:6px;padding:3px 7px;line-height:1}.clip video{width:100%;aspect-ratio:9/16;background:#000;border-radius:8px}.clip small{display:block;color:var(--mut)}
 .clip a,.clip button{font-size:12px;padding:4px 8px;text-decoration:none;color:var(--tx)}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
 fieldset{border:1px solid var(--line);border-radius:10px;padding:10px;margin:0}legend{color:var(--mut);font-size:12px;padding:0 6px}
@@ -96,7 +96,8 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
   <div id="zn_tools" style="display:none;margin-top:8px"><div class="mut" style="font-size:12px;margin-bottom:6px"><b style="color:#35d07f">Zona 1 (verde):</b> la parte del juego que se recorta y se muestra abajo; el movimiento se busca solo dentro de ella, como las zonas de un DVR. <b style="color:#ffe600">Zona 2 (amarilla):</b> tu cámara, que se recorta y se pone arriba. Arrastra para mover y tira de la esquina para cambiar el tamaño.</div>
    <div class="row"><button id="zn_save" class="sel">Guardar zonas</button><button id="zn_det">🔍 Detectar cámara</button><button id="zn_ai" title="Usa el modelo de visión de tu API (Gemini, Claude, GPT-4o…) para ubicar la cámara y los rostros">🤖 Detectar con IA</button><button id="zn_clr1">Quitar zona 1</button><button id="zn_auto">Cámara automática</button>
     <label class="chk" style="margin:0"><input type="checkbox" id="zn_lock" checked> Proporción fija de la zona 1</label>
-    <label class="chk" style="margin:0"><input type="checkbox" id="zn_follow" checked> Seguir el rostro en la cámara</label><label class="mut" style="margin:0">Zoom <input type="range" id="zn_zoom" min="100" max="200" value="115" style="width:90px;display:inline-block;vertical-align:middle"> <b id="zn_zv">1.15×</b></label></div><div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
+    <label class="chk" style="margin:0"><input type="checkbox" id="zn_follow" checked> Seguir el rostro (con calma)</label>
+    <label class="mut" style="margin:0">Estilo <select id="zn_panels" style="display:inline-block;width:auto"><option value="cards">2 pantallas (tarjetas)</option><option value="flush">Pegadas</option></select></label><label class="mut" style="margin:0">Zoom <input type="range" id="zn_zoom" min="100" max="200" value="115" style="width:90px;display:inline-block;vertical-align:middle"> <b id="zn_zv">1.15×</b></label></div><div class="mut" id="zn_msg" style="font-size:12px;margin-top:6px"></div></div>
   <div class="mut" style="font-size:12px;margin-top:6px">«Directo oficial» es el reproductor de la propia plataforma (Twitch, Kick o YouTube): en vivo, sin retraso añadido. Los clips salen de la señal de clipper, que va unos segundos por detrás. Solo se carga mientras esta pestaña está abierta.</div></section>
 <section class="card"><h2>Previa del clip (9:16) <span class="mut" id="pv_age" style="text-transform:none;letter-spacing:0"></span></h2>
   <div class="pvbox"><video id="pv_vid" muted loop playsinline autoplay></video></div>
@@ -183,7 +184,9 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
 </div>
 </div>
 <div class="view" id="v_clips">
-<section class="card"><h2>Clips generados</h2><div class="row" style="margin-bottom:10px"><label style="margin:0" class="mut">Canal / origen <select id="clip_filter" style="display:inline-block;width:auto;margin-left:6px"><option value="">Todos</option></select></label></div><div id="clips"></div></section>
+<section class="card"><h2>Clips generados</h2><div class="row" id="clipbar" style="margin-bottom:10px"><label class="chk" style="margin:0"><input type="checkbox" id="sel_all"> Seleccionar todo</label><span class="mut" id="sel_n">0 seleccionados</span>
+ <button id="sel_dl">⬇ Descargar seleccionados (.zip)</button><button id="sel_del">🗑 Borrar seleccionados</button><button id="del_all" style="border-color:#7a2b2b;color:#ff9a9a">🗑 Borrar todo</button></div>
+<div class="row" style="margin-bottom:10px"><label style="margin:0" class="mut">Canal / origen <select id="clip_filter" style="display:inline-block;width:auto;margin-left:6px"><option value="">Todos</option></select></label></div><div id="clips"></div></section>
 </div>
 <div class="view" id="v_pub">
 <section class="card" id="pubcard"><h2>Publicación en redes <span id="pubflag" class="mut"></span></h2>
@@ -312,17 +315,21 @@ async function status(){
  $("tr").textContent=s.transcript||"—";
  $("events").innerHTML=s.events.map(e=>`<div class="ev"><span class="mut">${e.t}</span> <b>${esc(e.kind)}</b> ${esc(e.detail)}</div>`).join("")||'<span class="mut">sin eventos</span>';
 }
+const SEL=new Set();
+function selUpd(){$("sel_n").textContent=SEL.size+" seleccionados";$("sel_dl").disabled=$("sel_del").disabled=SEL.size===0;const v=window._clipsShown||[];$("sel_all").checked=v.length>0&&v.every(n=>SEL.has(n))}
+function selBind(){document.querySelectorAll("[data-sel]").forEach(i=>i.onchange=()=>{i.checked?SEL.add(i.dataset.sel):SEL.delete(i.dataset.sel);selUpd()});selUpd()}
 const chanKey=x=>x.platform?(x.platform+(x.channel?" · "+x.channel:"")):"";
 async function clips(){
  let c;try{c=await api("/api/clips")}catch{return}
  window._clips=c;const cfv=$("clip_filter").value,keys=[...new Set(c.map(x=>chanKey(x)).filter(Boolean))].sort();
  if(JSON.stringify(keys)!==$("clip_filter").dataset.k){$("clip_filter").dataset.k=JSON.stringify(keys);$("clip_filter").innerHTML='<option value="">Todos ('+c.length+')</option>'+keys.map(k=>`<option value="${esc(k)}" ${k===cfv?"selected":""}>${esc(k)} (${c.filter(x=>chanKey(x)===k).length})</option>`).join("")}
- c=cfv?c.filter(x=>chanKey(x)===cfv):c;
+ c=cfv?c.filter(x=>chanKey(x)===cfv):c;window._clipsShown=c.map(x=>x.name);
  const sig=JSON.stringify([cfv,c.map(x=>[x.name,x.mtime,x.editable])]);if(sig===lastClips)return;lastClips=sig;
- $("clips").innerHTML=c.map(x=>`<div class="clip"><video controls preload="metadata" src="/clips/${encodeURIComponent(x.name)}?v=${Math.floor(x.mtime)}"></video>
+ $("clips").innerHTML=c.map(x=>`<div class="clip"><label class="selbox"><input type="checkbox" data-sel="${esc(x.name)}" ${SEL.has(x.name)?"checked":""}></label><video controls preload="metadata" src="/clips/${encodeURIComponent(x.name)}?v=${Math.floor(x.mtime)}"></video>
  ${x.title?`<b style="font-size:13px;display:block;margin-top:5px;line-height:1.25">${esc(x.title)}</b>`:""}${chanKey(x)?`<span class="chip2" style="margin:3px 0">${esc(chanKey(x))}</span>`:""}<small>${esc(x.reason||"")}${x.score?" ("+x.score+")":""} · ${x.duration??"?"} s · ${x.size_mb} MB${x.layout?" · "+esc(x.layout):""}${x.edited?" · editado":""}</small>${x.warning?`<small class="err">${esc(x.warning)}</small>`:""}<small>${esc(x.detail||"")}</small>
  <div class="row"><a href="/clips/${encodeURIComponent(x.name)}?download=true"><button>Descargar</button></a><button data-del="${esc(x.name)}">Borrar</button>${x.editable?`<button class="sel" data-edit="${esc(x.name)}">✂️ Editar</button>`:""}</div>
  <div class="row" style="margin-top:4px">${(window.pubDests||[]).map(d=>`<button data-pub="${d[0]}" data-clip="${esc(x.name)}">→ ${esc(d[1])}</button>`).join("")}</div></div>`).join("")||'<span class="mut">todavía no hay clips</span>';
+selBind();
  document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEditor(b.dataset.edit));
  document.querySelectorAll("[data-pub]").forEach(b=>b.onclick=async()=>{try{await api("/api/publish/enqueue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({clip:b.dataset.clip,platforms:[b.dataset.pub]})});pubSig="";pubs()}catch(e){alert(e.message)}});
  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{if(confirm("¿Borrar "+b.dataset.del+"?")){await api("/api/clips/"+encodeURIComponent(b.dataset.del),{method:"DELETE"});lastClips="";clips()}});
@@ -495,7 +502,7 @@ $("src_url").oninput=()=>{const p=platOf($("src_url").value);$("src_plat").textC
 async function loadSource(){let c;try{c=await api("/api/settings")}catch{return}
  const t=c.source.type;srcType(["live","streamlink","ytdlp"].includes(t)?"live":t==="rtmp"?"rtmp":"file");
  if(["live","streamlink","ytdlp"].includes(t))$("src_url").value=c.source.url;$("src_url").oninput();$("src_file_in").value=c.source.file;
- document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode));ZN.z1=c.layout.gameplay_zone;ZN.z2=c.layout.facecam;$("zn_follow").checked=c.layout.cam_follow;$("zn_zoom").value=Math.round(c.layout.cam_zoom*100);$("zn_zv").textContent=c.layout.cam_zoom.toFixed(2)+"×";ZN.pct=c.layout.facecam_height_pct;window._srcUrl=c.source.url;znDraw()}
+ document.querySelectorAll("#pv_layout button").forEach(b=>b.classList.toggle("sel",b.dataset.l===c.layout.mode));ZN.z1=c.layout.gameplay_zone;ZN.z2=c.layout.facecam;$("zn_follow").checked=c.layout.cam_follow;$("zn_panels").value=c.layout.panels;$("zn_zoom").value=Math.round(c.layout.cam_zoom*100);$("zn_zv").textContent=c.layout.cam_zoom.toFixed(2)+"×";ZN.pct=c.layout.facecam_height_pct;window._srcUrl=c.source.url;znDraw()}
 const PUT=b=>({method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
 $("src_probe").onclick=async()=>{const m=$("src_msg"),u=$("src_url").value.trim();m.className="mut";if(!u){m.className="err";m.textContent="Pega un enlace.";return}m.textContent="Comprobando (puede tardar unos segundos)…";
  try{const r=await api("/api/source/probe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})});
@@ -566,7 +573,7 @@ $("zn_edit").onclick=()=>znSet(!ZN.on);
    else{r.x=c(a.x+dx,0,1-a.w);r.y=c(a.y+dy,0,1-a.h)}znDraw()});
   const up=()=>{m=null};e.addEventListener("pointerup",up);e.addEventListener("pointercancel",up)}})();
 const rnd=r=>r&&Object.fromEntries(Object.entries(r).map(([k,v])=>[k,+v.toFixed(4)]));
-$("zn_save").onclick=async()=>{const m=$("zn_msg");try{await api("/api/settings",PUT({layout:{mode:"split",facecam:rnd(ZN.z2),gameplay_zone:rnd(ZN.z1),cam_follow:$("zn_follow").checked,cam_zoom:+$("zn_zoom").value/100}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Zonas guardadas. Diseño «Cámara + gameplay» activado.</span>';loadSource();pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};
+$("zn_save").onclick=async()=>{const m=$("zn_msg");try{await api("/api/settings",PUT({layout:{mode:"split",facecam:rnd(ZN.z2),gameplay_zone:rnd(ZN.z1),cam_follow:$("zn_follow").checked,panels:$("zn_panels").value,cam_zoom:+$("zn_zoom").value/100}}));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Zonas guardadas. Diseño «Cámara + gameplay» activado.</span>';loadSource();pvRefresh(true)}catch(e){m.className="err";m.textContent=e.message}};
 $("zn_det").onclick=async()=>{const m=$("zn_msg");m.className="mut";m.textContent="Buscando la cámara…";try{const r=await api("/api/live/facecam/detect",{method:"POST"});if(r.facecam){ZN.z2=r.facecam;znDraw();m.textContent="Cámara detectada: ajústala si hace falta y pulsa «Guardar zonas»."}else m.textContent="No se detectó: dibújala a mano."}catch(e){m.className="err";m.textContent=e.message}};
 $("zn_zoom").oninput=()=>$("zn_zv").textContent=($("zn_zoom").value/100).toFixed(2)+"×";
 $("zn_ai").onclick=async()=>{const m=$("zn_msg");m.className="mut";m.textContent="Analizando la imagen con tu modelo de visión…";
@@ -639,6 +646,14 @@ loadAuto();amRecent();
 /* ---- pausa de la generación automática + redes ---- */
 async function setPause(p){try{await api("/api/auto/"+(p?"pause":"resume"),{method:"POST"});status()}catch(e){alert(e.message)}}
 $("pausebtn").onclick=()=>setPause(!window._paused);$("am_pause").onclick=()=>setPause(true);$("am_resume").onclick=()=>setPause(false);
+$("sel_all").onchange=()=>{const on=$("sel_all").checked;(window._clipsShown||[]).forEach(n=>on?SEL.add(n):SEL.delete(n));document.querySelectorAll("[data-sel]").forEach(i=>i.checked=SEL.has(i.dataset.sel));selUpd()};
+$("sel_dl").onclick=()=>{if(SEL.size)location.href="/api/clips/download.zip?names="+encodeURIComponent([...SEL].join(","))};
+const bulkDone=()=>{SEL.clear();lastClips="";clips();amRecent();pubs()};
+$("sel_del").onclick=async()=>{const n=SEL.size;if(!n||!confirm(`¿Borrar ${n} clip(s) seleccionados? Se borran el vídeo y sus archivos; los pendientes de publicar se quitan de la cola.`))return;
+ try{await api("/api/clips/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({names:[...SEL]})});bulkDone()}catch(e){alert(e.message)}};
+$("del_all").onclick=async()=>{const n=(window._clips||[]).length;if(!n){alert("No hay clips.");return}
+ if(!confirm(`Vas a borrar TODOS los clips (${n}) y las fuentes guardadas. No se puede deshacer.`))return;if(prompt("Escribe BORRAR para confirmar")!=="BORRAR")return;
+ try{await api("/api/clips/delete_all",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirm:true})});bulkDone()}catch(e){alert(e.message)}};
 $("clip_filter").onchange=()=>{lastClips="";clips()};
 async function amNets(){let p;try{p=await api("/api/publish")}catch{return}
  $("am_nets").innerHTML=Object.entries(p.destinations).map(([k,d])=>{const ready=d.configured&&(!d.oauth||d.connected);

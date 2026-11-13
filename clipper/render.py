@@ -88,8 +88,13 @@ def _center_crop(info: VideoInfo, rect: RectCfg | None, out_w: int, out_h: int, 
     return cw, ch, _even(x), _even((info.height - ch) / 2)
 
 
+def _round_expr(r: int) -> str:
+    """Expresión de geq: 255 dentro de un rectángulo con esquinas de radio r, 0 fuera (máscara de la tarjeta)."""
+    return (f"if(gt(abs(X-W/2),W/2-{r})*gt(abs(Y-H/2),H/2-{r}),if(lte(hypot(abs(X-W/2)-(W/2-{r}),abs(Y-H/2)-(H/2-{r})),{r}),255,0),255)")
+
+
 def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[str], static: bool = False,
-                cache: dict | None = None) -> tuple[str, int | None, dict]:
+                cache: dict | None = None, panels: str | None = None) -> tuple[str, int | None, dict]:
     """Devuelve (filtergraph terminado en [v0], y de la unión cámara/gameplay o None, info de lo decidido)."""
     W, H = cfg.reframe.width, cfg.reframe.height
     note: dict = {"layout": spec.layout}
@@ -108,48 +113,64 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         return _contain("[0:v]", "[v0]", W, H, cfg.layout.blur_strength), None, note
 
     if note["layout"] == "split":
-        cam_h = _even(H * spec.facecam_height_pct / 100)
-        game_h = H - cam_h
+        cards = (panels or cfg.layout.panels) == "cards"
+        m, g_, rad = (cfg.layout.panel_margin, cfg.layout.panel_gap, cfg.layout.panel_radius) if cards else (0, 0, 0)
+        PW = W - 2 * m                                   # ancho de cada pantalla
+        content = H - 2 * m - g_
+        cam_h = _even(content * spec.facecam_height_pct / 100)
+        game_h = content - cam_h
         zoom = spec.cam_zoom if spec.cam_follow else 1.0
         if spec.cam_follow and "facepath" not in cache:
             cache["facepath"] = track_face_in(input_args, info, cfg, rect)         # seguimiento real, fotograma a fotograma
         fp = cache.get("facepath")
         if fp is not None:
-            _, _, pw, ph = _cam_crop(info, rect, (0.5, 0.5), W, cam_h, zoom)
+            _, _, pw, ph = _cam_crop(info, rect, (0.5, 0.5), PW, cam_h, zoom)
             rx, ry = int(rect.x * info.width), int(rect.y * info.height)
             rw, rh = max(2, _even(rect.w * info.width)), max(2, _even(rect.h * info.height))
-            xs = [rx + min(max(f * rw - pw / 2, 0), rw - pw) for f in fp.fx]
-            ys = [ry + min(max(f * rh - ph * 0.45, 0), rh - ph) for f in fp.fy]
+            q = lambda v: round(v / 2) * 2                                           # a pasos de 2 px: sin microtemblores  # noqa: E731
+            xs = [q(rx + min(max(f * rw - pw / 2, 0), rw - pw)) for f in fp.fx]
+            ys = [q(ry + min(max(f * rh - ph * 0.45, 0), rh - ph)) for f in fp.fy]
             if static:                                                              # respaldo sin expresiones: posición mediana
                 xe, ye = f"{sorted(xs)[len(xs) // 2]:.2f}", f"{sorted(ys)[len(ys) // 2]:.2f}"
             else:
                 xe, ye = pl_expr(xs, fp.fps), pl_expr(ys, fp.fps)
-            cam = f"[s1]crop={pw}:{ph}:x='{xe}':y='{ye}',scale={W}:{cam_h}:flags=lanczos[cam]"
+            cam = f"[s1]crop={pw}:{ph}:x='{xe}':y='{ye}',scale={PW}:{cam_h}:flags=lanczos[cam]"
             face = (0.5, 0.5)
         else:
             if "face" not in cache:
                 cache["face"] = face_center_in(input_args, info, cfg, rect)
             face = cache["face"]
-            px, py, pw, ph = _cam_crop(info, rect, face, W, cam_h, zoom)
-            cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={W}:{cam_h}:flags=lanczos[cam]"
+            px, py, pw, ph = _cam_crop(info, rect, face, PW, cam_h, zoom)
+            cam = f"[s1]crop={pw}:{ph}:{px}:{py},scale={PW}:{cam_h}:flags=lanczos[cam]"
         if spec.gameplay == "center":
-            cw, ch, gx, gy = _center_crop(info, rect, W, game_h, spec.gameplay_x, spec.gameplay_zone)
-            game = f"[s2]crop={cw}:{ch}:{gx}:{gy},scale={W}:{game_h}:flags=lanczos[game]"
+            cw, ch, gx, gy = _center_crop(info, rect, PW, game_h, spec.gameplay_x, spec.gameplay_zone)
+            game = f"[s2]crop={cw}:{ch}:{gx}:{gy},scale={PW}:{game_h}:flags=lanczos[game]"
         elif spec.gameplay == "cover":
             if "game_path" not in cache:
-                cache["game_path"] = analyze(input_args, info, cfg, out_w=W, out_h=game_h, ignore=rect, faces=False)
+                cache["game_path"] = analyze(input_args, info, cfg, out_w=PW, out_h=game_h, ignore=rect, faces=False)
             path = cache["game_path"]
             g = path.geom
             game = (f"[s2]crop=w={g.crop_w}:h={g.crop_h}:x='{path.static_x() if static else path.x_expr()}':y={g.y},"
-                    f"scale={W}:{game_h}:flags=lanczos[game]")
+                    f"scale={PW}:{game_h}:flags=lanczos[game]")
         elif spec.gameplay_zone is not None:                       # «completo»: se muestra entera la zona marcada, con fondo desenfocado
             zc = _zone_crop(info, spec.gameplay_zone, spec.gameplay_zone.w * info.width, spec.gameplay_zone.h * info.height)
-            game = f"[s2]crop={zc[0]}:{zc[1]}:{zc[2]}:{zc[3]}[zc];" + _contain("[zc]", "[game]", W, game_h, cfg.layout.blur_strength)
+            game = f"[s2]crop={zc[0]}:{zc[1]}:{zc[2]}:{zc[3]}[zc];" + _contain("[zc]", "[game]", PW, game_h, cfg.layout.blur_strength)
         else:
-            game = _contain("[s2]", "[game]", W, game_h, cfg.layout.blur_strength)
+            game = _contain("[s2]", "[game]", PW, game_h, cfg.layout.blur_strength)
+        note.update(face_in_cam=bool(face), panels="cards" if cards else "flush")
+        if cards:                                          # dos pantallas independientes sobre un fondo desenfocado del propio directo
+            top_h, bot_h = (cam_h, game_h) if spec.facecam_position == "top" else (game_h, cam_h)
+            first, second = ("cam", "game") if spec.facecam_position == "top" else ("game", "cam")
+            bw, bh = _even(W / 4), _even(H / 4)
+            bg = (f"[s3]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=6:2,scale={W}:{H},"
+                  f"eq=brightness=-0.28:saturation=0.9[bg]")
+            mk = lambda lab, h_: (f"color=c=white:s={PW}x{h_}:r=25:d=0.04,format=gray,geq=lum='{_round_expr(rad)}',loop=loop=-1:size=1[{lab}]")  # noqa: E731
+            rnd = lambda f, k: f"[{f}]format=yuva420p[{f}a];[{f}a][{k}]alphamerge[{f}r]"  # noqa: E731
+            graph = (f"[0:v]split=3[s1][s2][s3];{cam};{game};{bg};{mk('mk1', top_h)};{mk('mk2', bot_h)};{rnd(first, 'mk1')};{rnd(second, 'mk2')};"
+                     f"[bg][{first}r]overlay={m}:{m}[t1];[t1][{second}r]overlay={m}:{m + top_h + g_}[v0]")
+            return graph, m + top_h + g_ // 2, note
         order = "[cam][game]" if spec.facecam_position == "top" else "[game][cam]"
         graph = f"[0:v]split=2[s1][s2];{cam};{game};{order}vstack=inputs=2[v0]"
-        note.update(face_in_cam=bool(face))
         return graph, (cam_h if spec.facecam_position == "top" else game_h), note
 
     if "path" not in cache:
@@ -161,7 +182,7 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
     return graph, None, note
 
 
-def _run_ffmpeg(cfg: Config, input_args: list[str], graph: str, part: Path, cwd: str, preview: bool) -> tuple[str | None, str]:
+def _run_ffmpeg(cfg: Config, input_args: list[str], graph: str, part: Path, cwd: str, preview: bool, dur_out: float = 36000.0) -> tuple[str | None, str]:
     """Ejecuta ffmpeg (NVENC con respaldo a libx264). Devuelve (encoder usado | None, stderr del último intento)."""
     enc = "libx264" if preview else pick_encoder(cfg.render.encoder, cfg.compute.device)
     err = ""
@@ -170,7 +191,7 @@ def _run_ffmpeg(cfg: Config, input_args: list[str], graph: str, part: Path, cwd:
                "-filter_complex", graph, "-map", "[v]", "-map", "0:a:0?",
                *_encoder_args(attempt, cfg, preview), "-pix_fmt", "yuv420p",
                "-c:a", "aac", "-b:a", "96k" if preview else cfg.render.audio_bitrate,
-               "-movflags", "+faststart", "-f", "mp4", str(part)]
+               "-movflags", "+faststart", "-t", f"{dur_out:.3f}", "-f", "mp4", str(part)]
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
         if r.returncode == 0:
             return attempt, ""
@@ -213,12 +234,13 @@ def render_spec(cfg: Config, src: Path, spec: EditSpec, out_path: Path, preview:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     part = out_path.resolve().with_name(out_path.name + ".part")   # el clip no existe hasta estar completo
     cache: dict = {}
-    variants = ["normal"] if spec.layout == "fit" else ["normal", "static", "fit"]
+    variants = ["normal"] if spec.layout == "fit" else ["normal", "static", "flush", "fit"]
     last_err = ""
     with tempfile.TemporaryDirectory(prefix="render_") as wd:
         for variant in variants:
             sv = spec.model_copy(update={"layout": "fit"}) if variant == "fit" else spec
-            graph, seam_y, note = build_graph(cfg, sv, info, input_args, static=(variant == "static"), cache=cache)
+            graph, seam_y, note = build_graph(cfg, sv, info, input_args, static=(variant in ("static", "flush")), cache=cache,
+                                              panels="flush" if variant == "flush" else None)
             pos = st.position or ("seam" if note["layout"] == "split" else None)
             sub_cfg = with_preset(cfg.subtitles, st.preset, highlight_color=st.highlight_color,
                                   primary_color=st.primary_color, font_size=st.font_size, position=pos, uppercase=st.uppercase)
@@ -229,7 +251,7 @@ def render_spec(cfg: Config, src: Path, spec: EditSpec, out_path: Path, preview:
             graph += ";[v1]scale=540:960[v]" if preview else ";[v1]null[v]"
             if has_ass:
                 (Path(wd) / "subs.ass").write_text(ass, encoding="utf-8")   # ruta relativa + cwd evita escapes
-            enc, err = _run_ffmpeg(cfg, input_args, graph, part, wd, preview)
+            enc, err = _run_ffmpeg(cfg, input_args, graph, part, wd, preview, dur)
             if enc:
                 os.replace(part, out_path.resolve())
                 meta = {**note, "encoder": enc, "duration": round(dur, 2), "source_resolution": f"{info.width}x{info.height}"}

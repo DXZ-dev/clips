@@ -183,11 +183,11 @@ def test_render_falls_back_to_static_then_fit(cfg, source, tmp_path, monkeypatch
     real = R._run_ffmpeg
     seen = []
 
-    def flaky(cfg_, input_args, graph, part, cwd, preview, fail_on=("clip(t-",)):
+    def flaky(cfg_, input_args, graph, part, cwd, preview, dur_out=36000.0, fail_on=("clip(t-",)):
         seen.append(graph[:40])
         if any(f in graph for f in fail_on):                 # el recorte móvil «no funciona» en esta máquina
             return None, "Failed to configure input pad on Parsed_crop_0 (simulado)"
-        return real(cfg_, input_args, graph, part, cwd, preview)
+        return real(cfg_, input_args, graph, part, cwd, preview, dur_out)
 
     monkeypatch.setattr(R, "_run_ffmpeg", flaky)
     # un movimiento real en el vídeo para que la trayectoria tenga pendiente
@@ -266,3 +266,23 @@ def test_zone_settings_roundtrip(tmp_path):
     assert r.status_code == 200 and c0.layout.gameplay_zone.w == 0.5 and eng.visual.zone.x == 0.3        # el detector visual la recibe
     assert c.put("/api/settings", json={"layout": {"gameplay_zone": {"x": 0.8, "y": 0, "w": 0.5, "h": 1}}}).status_code == 422
     assert c.put("/api/settings", json={"layout": {"gameplay_zone": None}}).status_code == 200 and eng.visual.zone is None
+
+
+# ------------------------------------------------------------------ acciones en lote
+def test_bulk_zip_and_delete(cfg, source):
+    import io
+    import zipfile
+    a, b = make_clip(cfg, source, "clip_a"), make_clip(cfg, source, "clip_b")
+    c = TestClient(create_app(Engine(cfg, data_dir=ed.out_dir(cfg).parent), manage_engine=False), base_url="http://localhost")
+    r = c.get("/api/clips/download.zip", params={"names": f"{a},../x.mp4,nada.mp4"})
+    assert r.status_code == 200
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert a in names and "clip_a.txt" in names and len(names) == 2
+    assert c.get("/api/clips/download.zip", params={"names": "nada.mp4"}).status_code == 404
+    assert len(zipfile.ZipFile(io.BytesIO(c.get("/api/clips/download.zip", params={"all": "true"}).content)).namelist()) == 4
+    assert c.post("/api/clips/delete", json={"names": [a, "../x.mp4"]}).json() == {"deleted": 1}
+    assert not (ed.out_dir(cfg) / a).exists() and (ed.out_dir(cfg) / b).exists()
+    assert c.post("/api/clips/delete_all", json={}).status_code == 422
+    assert (ed.out_dir(cfg) / b).exists()
+    assert c.post("/api/clips/delete_all", json={"confirm": True}).json() == {"deleted": 1}
+    assert not list(ed.out_dir(cfg).glob("*.mp4"))

@@ -332,22 +332,31 @@ def track_face_in(input_args: list[str], info: VideoInfo, cfg: Config, rect: Rec
     finally:
         if hasattr(det, "close"):
             det.close()
+    return smooth_face(raw, fps)
+
+
+def smooth_face(raw: list, fps: float, dead: tuple[float, float] = (0.08, 0.07), alpha: float = 0.10, hold_s: float = 2.0) -> FacePath | None:
+    """Encuadre TRANQUILO: el encuadre se queda quieto mientras el rostro esté dentro de una zona cómoda (`dead`, fracción de la cámara)
+    y solo se recoloca —suave y lento— por la parte que se sale. Así no hay un deslizamiento constante de lado a lado."""
     first = next((r for r in raw if r is not None), None)
     if first is None:
         return None
-    alpha, dead, hold = 0.3, 0.015, int(1.5 * fps)
     cx, cy = first
     fx, fy, lost, last = [], [], 0, first
     for r in raw:
         if r is None:
             lost += 1
-            goal = last if lost <= hold else (0.5, 0.45)                 # tras 1,5 s sin verse, vuelve al centro
+            goal = last if lost <= hold_s * fps else (0.5, 0.45)         # tras ~2 s sin verse, vuelve al centro
         else:
             lost, last, goal = 0, r, r
-        if abs(goal[0] - cx) > dead:
-            cx += alpha * (goal[0] - cx)
-        if abs(goal[1] - cy) > dead:
-            cy += alpha * (goal[1] - cy)
+        for axis, d in ((0, dead[0]), (1, dead[1])):
+            diff = goal[axis] - (cx if axis == 0 else cy)
+            if abs(diff) > d:
+                step = alpha * (diff - (d if diff > 0 else -d))            # solo la parte que sale de la zona cómoda
+                if axis == 0:
+                    cx += step
+                else:
+                    cy += step
         fx.append(cx)
         fy.append(cy)
     return FacePath(fps, fx, fy)

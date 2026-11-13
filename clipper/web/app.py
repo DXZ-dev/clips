@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import os
 from urllib.parse import urlparse
 
 import anyio
@@ -62,6 +63,14 @@ class ImportRequest(BaseModel):
     platforms: list[str] = []
     title: str = ""
     description: str = ""
+
+
+class NamesRequest(BaseModel):
+    names: list[str]
+
+
+class DeleteAllRequest(BaseModel):
+    confirm: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -603,9 +612,78 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
         p = _safe(name)
         return FileResponse(p, media_type="video/mp4", filename=name if download else None)
 
+    @app.get("/api/clips/download.zip")
+    def clips_zip(names: str = "", all: bool = False):
+        """ZIP con los clips elegidos (o todos): cada vídeo + un .txt con su título, transcripción y canal, listo para publicar."""
+        import json as _json
+        import tempfile
+        import time as _time
+        import zipfile
+        from starlette.background import BackgroundTask
+        out = ed.out_dir(engine.cfg)
+        files = sorted(out.glob("*.mp4")) if all else []
+        if not all:
+            for n in names.split(","):
+                n = n.strip()
+                try:
+                    ed.stem_of(n)
+                except ed.EditorError:
+                    continue
+                if (out / n).is_file():
+                    files.append(out / n)
+        if not files:
+            raise HTTPException(404, "No hay clips que descargar.")
+        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        tmp.close()
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_STORED) as z:           # los mp4 ya van comprimidos: sin recomprimir
+            for p in files:
+                z.write(p, p.name)
+                jm = p.with_suffix(".json")
+                if jm.exists():
+                    try:
+                        m = _json.loads(jm.read_text())
+                        txt = (f"{m.get('title', '')}\n\n{m.get('transcript', '')}\n\nCanal: {m.get('platform', '')} {m.get('channel', '')}\n"
+                               f"Motivo: {m.get('reason', '')} {m.get('detail', '')}\n")
+                        z.writestr(p.stem + ".txt", txt)
+                    except ValueError:
+                        pass
+        return FileResponse(tmp.name, media_type="application/zip", filename=f"clips_{_time.strftime('%Y%m%d_%H%M%S')}.zip",
+                            background=BackgroundTask(os.unlink, tmp.name))
+
+    @app.post("/api/clips/delete")
+    def clips_delete(req: NamesRequest):
+        """Borra los clips elegidos (vídeo, metadatos, fuente si nadie más la usa) y sus entradas pendientes en la cola de publicación."""
+        out, n = ed.out_dir(engine.cfg), 0
+        for name in req.names[:1000]:
+            try:
+                stem = ed.stem_of(name)
+            except ed.EditorError:
+                continue
+            if (out / name).exists():
+                ed.remove_clip_files(engine.cfg, stem)
+                pub.drop_clip(name)
+                n += 1
+        return {"deleted": n}
+
+    @app.post("/api/clips/delete_all")
+    def clips_delete_all(req: DeleteAllRequest):
+        """Borra TODOS los clips y las fuentes guardadas. Hay que enviar confirm=true."""
+        if not req.confirm:
+            raise HTTPException(422, "Falta la confirmación.")
+        out, n = ed.out_dir(engine.cfg), 0
+        for p in sorted(out.glob("*.mp4")):
+            ed.remove_clip_files(engine.cfg, p.stem)
+            pub.drop_clip(p.name)
+            n += 1
+        for f in ed.src_dir(engine.cfg).glob("*"):                              # restos: fuentes compartidas, previas, ediciones
+            if f.is_file():
+                f.unlink(missing_ok=True)
+        return {"deleted": n}
+
     @app.delete("/api/clips/{name}")
     def delete_clip(name: str):
         p = _safe(name)
+        pub.drop_clip(name)
         ed.remove_clip_files(engine.cfg, p.stem)
         return JSONResponse({"deleted": name})
 
