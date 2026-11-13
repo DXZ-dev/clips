@@ -53,6 +53,13 @@ class ClipCfg(BaseModel):
     default_seconds: int = 30
     duration_options: list[int] = [15, 30, 60]
     output_dir: str = "./output_clips"
+    auto_hook: bool = True                    # rótulo de gancho arriba (el título del clip) los primeros segundos
+    hook_seconds: float = Field(3.0, ge=0.5, le=15)
+    watermark_auto: bool = True               # marca con el nombre del canal
+    watermark_corner: Literal["tl", "tr", "bl", "br"] = "br"
+    progress_bar: bool = True                 # barra de progreso al pie
+    fade_seconds: float = Field(0.25, ge=0, le=2)    # fundido de entrada/salida (vídeo y audio)
+    normalize_audio: bool = True              # loudnorm -14 LUFS
 
 
 class SmoothingCfg(BaseModel):

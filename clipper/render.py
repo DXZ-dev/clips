@@ -206,7 +206,19 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
     return graph, None, note
 
 
-def _run_ffmpeg(cfg: Config, input_args: list[str], graph: str, part: Path, cwd: str, preview: bool, dur_out: float = 36000.0) -> tuple[str | None, str]:
+def _audio_filter(cfg: Config, dur: float, preview: bool) -> str | None:
+    if preview:
+        return None
+    cc, f = cfg.clip, []
+    if cc.normalize_audio:
+        f.append("loudnorm=I=-14:TP=-1.5:LRA=11")
+    if cc.fade_seconds > 0 and dur > 4 * cc.fade_seconds:
+        f += [f"afade=t=in:st=0:d={cc.fade_seconds}", f"afade=t=out:st={dur - cc.fade_seconds:.3f}:d={cc.fade_seconds}"]
+    return ",".join(f) or None
+
+
+def _run_ffmpeg(cfg: Config, input_args: list[str], graph: str, part: Path, cwd: str, preview: bool, dur_out: float = 36000.0,
+                afilter: str | None = None) -> tuple[str | None, str]:
     """Ejecuta ffmpeg (NVENC con respaldo a libx264). Devuelve (encoder usado | None, stderr del último intento)."""
     enc = "libx264" if preview else pick_encoder(cfg.render.encoder, cfg.compute.device)
     err = ""
@@ -214,7 +226,7 @@ def _run_ffmpeg(cfg: Config, input_args: list[str], graph: str, part: Path, cwd:
         cmd = [require("ffmpeg"), "-y", "-v", "error", "-nostdin", *input_args,
                "-filter_complex", graph, "-map", "[v]", "-map", "0:a:0?",
                *_encoder_args(attempt, cfg, preview), "-pix_fmt", "yuv420p",
-               "-c:a", "aac", "-b:a", "96k" if preview else cfg.render.audio_bitrate,
+               *(["-af", afilter] if afilter else []), "-c:a", "aac", "-b:a", "96k" if preview else cfg.render.audio_bitrate,
                "-movflags", "+faststart", "-t", f"{dur_out:.3f}", "-f", "mp4", str(part)]
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
         if r.returncode == 0:
@@ -272,10 +284,16 @@ def render_spec(cfg: Config, src: Path, spec: EditSpec, out_path: Path, preview:
                             seam_y=seam_y, hook=hook, watermark=mark, duration=dur)
             has_ass = bool((st.enabled and words) or hook or mark)
             graph += (";[v0]ass=subs.ass[v1]" if has_ass else ";[v0]null[v1]")
+            cc = cfg.clip
+            if not preview and cc.progress_bar:                  # barra que avanza con el clip
+                graph += (f";color=c=white@0.85:s={cfg.reframe.width}x12:r=25:d={dur:.2f}[bar];"
+                          f"[v1][bar]overlay=x=-w+w*t/{dur:.3f}:y=H-12:eval=frame:shortest=1[v1]")
+            if not preview and cc.fade_seconds > 0 and dur > 4 * cc.fade_seconds:
+                graph += f";[v1]fade=t=in:st=0:d={cc.fade_seconds},fade=t=out:st={dur - cc.fade_seconds:.3f}:d={cc.fade_seconds}[v1]"
             graph += ";[v1]scale=540:960[v]" if preview else ";[v1]null[v]"
             if has_ass:
                 (Path(wd) / "subs.ass").write_text(ass, encoding="utf-8")   # ruta relativa + cwd evita escapes
-            enc, err = _run_ffmpeg(cfg, input_args, graph, part, wd, preview, dur)
+            enc, err = _run_ffmpeg(cfg, input_args, graph, part, wd, preview, dur, _audio_filter(cfg, dur, preview))
             if enc:
                 os.replace(part, out_path.resolve())
                 meta = {**note, "encoder": enc, "duration": round(dur, 2), "source_resolution": f"{info.width}x{info.height}"}

@@ -183,11 +183,11 @@ def test_render_falls_back_to_static_then_fit(cfg, source, tmp_path, monkeypatch
     real = R._run_ffmpeg
     seen = []
 
-    def flaky(cfg_, input_args, graph, part, cwd, preview, dur_out=36000.0, fail_on=("clip(t-",)):
+    def flaky(cfg_, input_args, graph, part, cwd, preview, dur_out=36000.0, afilter=None, fail_on=("clip(t-",)):
         seen.append(graph[:40])
         if any(f in graph for f in fail_on):                 # el recorte móvil «no funciona» en esta máquina
             return None, "Failed to configure input pad on Parsed_crop_0 (simulado)"
-        return real(cfg_, input_args, graph, part, cwd, preview, dur_out)
+        return real(cfg_, input_args, graph, part, cwd, preview, dur_out, afilter)
 
     monkeypatch.setattr(R, "_run_ffmpeg", flaky)
     # un movimiento real en el vídeo para que la trayectoria tenga pendiente
@@ -311,4 +311,15 @@ def test_overlay_render(cfg, source):
     cfg.layout.cam_follow = False
     name = make_clip(cfg, source, "clip_o")
     i = probe(ed.out_dir(cfg) / name)
+    assert (i.width, i.height) == (1080, 1920)
+
+
+def test_pro_polish_render(cfg, source):
+    cfg.clip.progress_bar = cfg.clip.normalize_audio = True
+    cfg.clip.fade_seconds = 0.2
+    stem = make_clip(cfg, source, "clip_p")
+    spec = ed.load_edit(cfg, stem + ".mp4") if hasattr(ed, "load_edit") else default_spec(cfg, [], 0.5, 4.5)
+    meta = json.loads((ed.out_dir(cfg) / "clip_p.json").read_text())
+    assert "fallback" not in meta, meta
+    i = probe(ed.out_dir(cfg) / "clip_p.mp4")
     assert (i.width, i.height) == (1080, 1920)

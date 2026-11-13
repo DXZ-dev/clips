@@ -85,6 +85,11 @@ def _check(cfg: Config, name: str, spec: EditSpec) -> tuple[str, Path, dict]:
 
 def finalize(cfg: Config, stem: str, src: Path, spec: EditSpec, out: Path, extra: dict | None = None) -> dict:
     """Render final + metadatos + guardado de la edición."""
+    cc = cfg.clip
+    if extra and not spec.hook.text.strip() and cc.auto_hook and extra.get("title"):
+        spec = spec.model_copy(update={"hook": spec.hook.model_copy(update={"text": str(extra["title"])[:90], "seconds": cc.hook_seconds})})
+    if extra and not spec.watermark.text.strip() and cc.watermark_auto and extra.get("channel"):
+        spec = spec.model_copy(update={"watermark": spec.watermark.model_copy(update={"text": str(extra["channel"])[:40], "corner": cc.watermark_corner})})
     info = render_spec(cfg, src, spec, out)
     meta = {**(extra or {}), **info, "transcript": transcript_of(spec), "words": len(spec.words),
             "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "editable": cfg.editor.keep_sources}
