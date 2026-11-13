@@ -89,6 +89,13 @@ run() {
   "$@" >>"$LOG" 2>&1 || { echo "--- últimas líneas del registro ($LOG) ---" >&2; tail -n 25 "$LOG" >&2; return 1; }
 }
 
+# Como run, pero muestra la salida en pantalla (para descargas largas con barra de progreso).
+git_live() {
+  printf '  $ git %s\n' "$*" >>"$LOG"
+  if [ "$DRY" = 1 ]; then printf '  [dry-run] git %s\n' "$*"; return 0; fi
+  if git "$@" 2>&1 | tee -a "$LOG"; then return 0; else return 1; fi
+}
+
 # Pregunta sí/no (def. sí). Sin terminal o con --yes, asume sí. Lee de /dev/tty para funcionar con «curl | bash».
 ask() {
   [ "$YES" = 1 ] && return 0
@@ -176,6 +183,8 @@ git_env() {
     export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="$hdr"
   fi
   [ -t 0 ] || export GIT_TERMINAL_PROMPT=0
+  # Si la descarga se atasca (<1 KB/s durante 60 s) falla con un error en vez de esperar sin fin.
+  export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60
 }
 
 fetch_code() {
@@ -188,16 +197,16 @@ fetch_code() {
       warn "Hay cambios locales en $INSTALL_DIR: no se actualiza el código (se conservan)."
     else
       local br="${BRANCH:-$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD)}"
-      run git -C "$INSTALL_DIR" fetch --depth 1 origin "$br" || die "No se pudo leer la rama '$br'. ¿Existe? ¿Falta GITHUB_TOKEN (repo privado)?"
+      git_live -C "$INSTALL_DIR" fetch --depth 1 --progress origin "$br" || die "No se pudo leer la rama '$br'. ¿Existe? ¿Falta GITHUB_TOKEN (repo privado)?"
       run git -C "$INSTALL_DIR" checkout -q -B "$br" FETCH_HEAD
       ok "Actualizado a $(git -C "$INSTALL_DIR" rev-parse --short HEAD)"
     fi
   elif [ -e "$INSTALL_DIR" ] && [ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
     die "$INSTALL_DIR existe y no es una instalación de clipper (usa --dir otra_ruta)."
   else
-    local clone=(git clone --depth 1)
+    local clone=(clone --depth 1 --progress)
     [ -n "$BRANCH" ] && clone+=(--branch "$BRANCH")
-    run "${clone[@]}" "$REPO_URL" "$INSTALL_DIR" \
+    git_live "${clone[@]}" "$REPO_URL" "$INSTALL_DIR" \
       || die "No se pudo clonar. El repositorio es privado: export GITHUB_TOKEN=... (permiso de lectura) y vuelve a ejecutar. Si la rama no existe, usa --branch."
     ok "Clonado en $INSTALL_DIR"
   fi
@@ -427,6 +436,7 @@ fi
 if [ "$UNINSTALL" = 1 ]; then uninstall; exit 0; fi
 
 printf '%sclipper — instalador%s  (%s)\n' "$B" "$N" "$OS_NAME"
+printf '  Registro detallado: %s   (puedes seguirlo con: tail -f %s)\n' "$LOG" "$LOG"
 [ "$DRY" = 1 ] && warn "Modo simulación: no se cambia nada."
 
 if [ "$FROM_CLONE" = 0 ]; then

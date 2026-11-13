@@ -9,3 +9,4 @@ secrets.local.yaml
 tokens.local.json
 data/
 *.egg-info/
+samples/stream_cam.mp4
