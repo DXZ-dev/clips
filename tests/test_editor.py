@@ -286,3 +286,15 @@ def test_bulk_zip_and_delete(cfg, source):
     assert (ed.out_dir(cfg) / b).exists()
     assert c.post("/api/clips/delete_all", json={"confirm": True}).json() == {"deleted": 1}
     assert not list(ed.out_dir(cfg).glob("*.mp4"))
+
+
+def test_exact_zone_sets_panel_height(cfg, source):
+    from clipper.config import RectCfg
+    cfg.layout.facecam = RectCfg(x=0.02, y=0.02, w=0.3, h=0.3)
+    cfg.layout.gameplay_zone = RectCfg(x=0.1, y=0.3, w=0.8, h=0.6)
+    stem = make_clip(cfg, source, "clip_z")
+    spec = default_spec(cfg, [], 0.5, 4.5)
+    spec = spec.model_copy(update={"layout": "split"})
+    info = probe(source)
+    graph, _, note = build_graph(cfg, spec, info, ["-i", str(source)], False, {}, None)
+    assert "crop=" in graph and note["panels"] == "cards"

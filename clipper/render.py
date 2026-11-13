@@ -119,6 +119,12 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         content = H - 2 * m - g_
         cam_h = _even(content * spec.facecam_height_pct / 100)
         game_h = content - cam_h
+        exact = cfg.layout.exact_zones and spec.gameplay == "center" and spec.gameplay_zone is not None
+        if exact:                                        # la zona marcada se ve entera: su proporción manda sobre la altura
+            z = spec.gameplay_zone
+            want = _even(PW * (z.h * info.height) / max(2.0, z.w * info.width))
+            game_h = min(max(want, _even(content * 0.30)), _even(content * 0.72))
+            cam_h = content - game_h
         zoom = spec.cam_zoom if spec.cam_follow else 1.0
         if spec.cam_follow and "facepath" not in cache:
             cache["facepath"] = track_face_in(input_args, info, cfg, rect)         # seguimiento real, fotograma a fotograma
