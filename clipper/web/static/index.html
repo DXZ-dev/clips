@@ -56,12 +56,12 @@ nav a:hover{color:var(--tx);background:var(--line)}nav a.on{background:var(--ac)
 .chip2.live{background:#3b1717;color:#ff8f8f}.chip2.live:before{content:"● ";color:#ff4d4d}
 .amrecent{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}.amrecent .it{font-size:12px;color:var(--mut)}
 .amrecent video{width:100%;aspect-ratio:9/16;background:#000;border-radius:8px;display:block;margin-bottom:3px}
-.seg2 button.sel{font-weight:700}.seg2 button.off{opacity:.45}
+.netchip{margin:0 14px 6px 0;display:inline-block}.netchip small{margin:0 4px}.seg2 button.sel{font-weight:700}.seg2 button.off{opacity:.45}
 .pvbox video{display:block;margin:0 auto;aspect-ratio:9/16;max-height:62vh;width:auto;max-width:100%;background:#000;border-radius:14px}
 code{background:#10131a;padding:1px 6px;border-radius:5px}
 </style></head>
 <body><header class="top"><div class="brand">✂️ <b>clipper</b> <span class="mut" id="src"></span></div>
- <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes <i class="badge" id="nu"></i></a></nav><a id="logout" style="display:none;margin-left:auto;color:var(--mut);cursor:pointer">Salir</a></header>
+ <nav id="nav"><a data-v="live">Directo</a><a data-v="videos">Vídeos <i class="badge" id="nv"></i></a><a data-v="clips">Clips</a><a data-v="pub">Publicación <i class="badge" id="nb"></i></a><a data-v="set">Ajustes <i class="badge" id="nu"></i></a></nav><a id="pausebtn" title="Pausar o reanudar la generación automática de clips" style="padding:6px 12px;border-radius:999px;border:1px solid var(--line);cursor:pointer;font-size:13px">⏸ Pausar clips</a><a id="logout" style="display:none;margin-left:auto;color:var(--mut);cursor:pointer">Salir</a></header>
 <main>
 <div class="view on" id="v_live">
 <section class="card" id="srccard" style="margin-bottom:12px"><h2>Fuente del directo <span id="src_plat" class="chip2"></span> <span id="src_state" class="mut" style="text-transform:none;letter-spacing:0"></span></h2>
@@ -130,7 +130,10 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
 
 <section class="card" id="amcard" style="margin-top:12px"><h2>Modo automático de clips <span id="am_chip" class="chip2"></span> <span class="mut" id="am_count" style="text-transform:none;letter-spacing:0"></span></h2>
   <div class="seg2" id="am_mode"><button data-m="off">✋ Manual</button><button data-m="review">🤖 Automático · a revisión</button><button data-m="auto">⚡ Automático total</button></div>
+  <div class="row" style="margin:10px 0 0"><button id="am_pause">⏸ Pausar generación</button><button id="am_resume">▶ Reanudar</button><span id="am_paused" class="chip2 bad" style="display:none">en pausa</span></div>
   <div class="mut" id="am_help" style="font-size:13px;margin:8px 0 8px"></div>
+  <div class="mut" style="margin:6px 0 4px;font-size:13px">Redes donde se publican los clips (activa las que quieras; también puedes publicar cada clip a mano desde <b>Clips</b>):</div>
+  <div id="am_nets" style="margin-bottom:10px"></div>
   <div id="am_check" style="font-size:13px;margin-bottom:12px;line-height:1.7"></div>
   <div class="row2f"><label>Sensibilidad <select id="am_sens"><option value="low">Baja: solo lo más fuerte</option><option value="medium">Media</option><option value="high">Alta: más clips</option></select></label>
    <label>Duración de cada clip <select id="am_dur"><option value="15">15 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option></select></label>
@@ -166,7 +169,7 @@ code{background:#10131a;padding:1px 6px;border-radius:5px}
 </div>
 </div>
 <div class="view" id="v_clips">
-<section class="card"><h2>Clips generados</h2><div id="clips"></div></section>
+<section class="card"><h2>Clips generados</h2><div class="row" style="margin-bottom:10px"><label style="margin:0" class="mut">Canal / origen <select id="clip_filter" style="display:inline-block;width:auto;margin-left:6px"><option value="">Todos</option></select></label></div><div id="clips"></div></section>
 </div>
 <div class="view" id="v_pub">
 <section class="card" id="pubcard"><h2>Publicación en redes <span id="pubflag" class="mut"></span></h2>
@@ -279,6 +282,7 @@ function pickDur(s){secs=s;$("gosec").textContent=s;document.querySelectorAll("#
 async function status(){
  let s;try{s=await api("/api/status")}catch{$("livetxt").textContent="sin conexión con el servidor";return}
  $("src").textContent="· fuente: "+s.source;
+ window._paused=!!s.paused;$("pausebtn").textContent=s.paused?"▶ Reanudar clips":"⏸ Pausar clips";$("pausebtn").style.background=s.paused?"#3b1717":"";$("am_paused").style.display=s.paused?"inline-block":"none";$("am_pause").disabled=!!s.paused;$("am_resume").disabled=!s.paused;
  window._live=!!(s.buffer&&s.buffer.live);window._tr=!!(s.transcriber&&s.transcriber.ready);$("am_count").textContent=s.auto?"· "+s.auto.last_hour+" en la última hora (máx. "+s.auto.max_per_hour+")":"";$("logout").style.display=s.auth?"inline":"none";$("nu").textContent="!";$("nu").classList.toggle("on",!!(s.update&&s.update.available));const pr=s.publish.pending_review;$("nb").textContent=pr;$("nb").classList.toggle("on",pr>0);
  if(!buildDur){buildDur=true;$("durs").innerHTML=s.durations.map(d=>`<button data-s="${d}">${d} s</button>`).join("");
   document.querySelectorAll("#durs button").forEach(b=>b.onclick=()=>pickDur(+b.dataset.s));pickDur(s.default_seconds)}
@@ -293,11 +297,15 @@ async function status(){
  $("tr").textContent=s.transcript||"—";
  $("events").innerHTML=s.events.map(e=>`<div class="ev"><span class="mut">${e.t}</span> <b>${esc(e.kind)}</b> ${esc(e.detail)}</div>`).join("")||'<span class="mut">sin eventos</span>';
 }
+const chanKey=x=>x.platform?(x.platform+(x.channel?" · "+x.channel:"")):"";
 async function clips(){
  let c;try{c=await api("/api/clips")}catch{return}
- const sig=JSON.stringify(c.map(x=>[x.name,x.mtime,x.editable]));if(sig===lastClips)return;lastClips=sig;
+ window._clips=c;const cfv=$("clip_filter").value,keys=[...new Set(c.map(x=>chanKey(x)).filter(Boolean))].sort();
+ if(JSON.stringify(keys)!==$("clip_filter").dataset.k){$("clip_filter").dataset.k=JSON.stringify(keys);$("clip_filter").innerHTML='<option value="">Todos ('+c.length+')</option>'+keys.map(k=>`<option value="${esc(k)}" ${k===cfv?"selected":""}>${esc(k)} (${c.filter(x=>chanKey(x)===k).length})</option>`).join("")}
+ c=cfv?c.filter(x=>chanKey(x)===cfv):c;
+ const sig=JSON.stringify([cfv,c.map(x=>[x.name,x.mtime,x.editable])]);if(sig===lastClips)return;lastClips=sig;
  $("clips").innerHTML=c.map(x=>`<div class="clip"><video controls preload="metadata" src="/clips/${encodeURIComponent(x.name)}?v=${Math.floor(x.mtime)}"></video>
- <small>${esc(x.reason||"")} · ${x.duration??"?"} s · ${x.size_mb} MB${x.layout?" · "+esc(x.layout):""}${x.edited?" · editado":""}</small>${x.warning?`<small class="err">${esc(x.warning)}</small>`:""}<small>${esc(x.detail||"")}</small>
+ ${x.title?`<b style="font-size:13px;display:block;margin-top:5px;line-height:1.25">${esc(x.title)}</b>`:""}${chanKey(x)?`<span class="chip2" style="margin:3px 0">${esc(chanKey(x))}</span>`:""}<small>${esc(x.reason||"")}${x.score?" ("+x.score+")":""} · ${x.duration??"?"} s · ${x.size_mb} MB${x.layout?" · "+esc(x.layout):""}${x.edited?" · editado":""}</small>${x.warning?`<small class="err">${esc(x.warning)}</small>`:""}<small>${esc(x.detail||"")}</small>
  <div class="row"><a href="/clips/${encodeURIComponent(x.name)}?download=true"><button>Descargar</button></a><button data-del="${esc(x.name)}">Borrar</button>${x.editable?`<button class="sel" data-edit="${esc(x.name)}">✂️ Editar</button>`:""}</div>
  <div class="row" style="margin-top:4px">${(window.pubDests||[]).map(d=>`<button data-pub="${d[0]}" data-clip="${esc(x.name)}">→ ${esc(d[1])}</button>`).join("")}</div></div>`).join("")||'<span class="mut">todavía no hay clips</span>';
  document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEditor(b.dataset.edit));
@@ -417,7 +425,7 @@ window.refreshClips=()=>{lastClips="";clips()};
 /* ---- navegación y vídeos ---- */
 function show(v){document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v_"+v));document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
  if(location.hash!=="#"+v)history.replaceState(null,"","#"+v);window.scrollTo(0,0);
- if(v==="set")loadSettings();if(v==="live"){loadSource();loadAuto();amRecent();loadSubs()}if(v==="videos"){vjobs();vplats()}if(v==="clips")refreshClips();}
+ if(v==="set")loadSettings();if(v==="live"){loadSource();loadAuto();amRecent();loadSubs();amNets()}if(v==="videos"){vjobs();vplats()}if(v==="clips")refreshClips();}
 document.querySelectorAll("#nav a").forEach(a=>a.onclick=()=>show(a.dataset.v));
 const VMODE={m:"highlights"};
 document.querySelectorAll("#vmode button").forEach(b=>b.onclick=()=>{VMODE.m=b.dataset.m;document.querySelectorAll("#vmode button").forEach(x=>x.classList.toggle("sel",x===b));
@@ -586,6 +594,17 @@ async function amRecent(){let c;try{c=await api("/api/clips")}catch{return}
  $("am_recent").innerHTML=auto.map(x=>`<div class="it"><video preload="metadata" muted playsinline controls src="/clips/${encodeURIComponent(x.name)}?v=${Math.floor(x.mtime)}#t=0.1"></video>${esc(R[x.reason]||x.reason)}${x.detail?" · "+esc(x.detail).slice(0,40):""}</div>`).join("")||'<span class="mut">Todavía no hay clips automáticos.</span>'}
 setInterval(()=>{if($("v_live").classList.contains("on"))amRecent()},10000);
 loadAuto();amRecent();
+/* ---- pausa de la generación automática + redes ---- */
+async function setPause(p){try{await api("/api/auto/"+(p?"pause":"resume"),{method:"POST"});status()}catch(e){alert(e.message)}}
+$("pausebtn").onclick=()=>setPause(!window._paused);$("am_pause").onclick=()=>setPause(true);$("am_resume").onclick=()=>setPause(false);
+$("clip_filter").onchange=()=>{lastClips="";clips()};
+async function amNets(){let p;try{p=await api("/api/publish")}catch{return}
+ $("am_nets").innerHTML=Object.entries(p.destinations).map(([k,d])=>{const ready=d.configured&&(!d.oauth||d.connected);
+  const act=!d.configured?'<a data-cfg="1" style="color:var(--ac);cursor:pointer">Configurar</a>':(d.oauth&&!d.connected?`<a href="/oauth/${k}/start" style="color:var(--ac)">Conectar</a>`:"");
+  return `<label class="chk netchip"><input type="checkbox" data-net="${k}" ${d.enabled?"checked":""}> ${esc(d.label)} <small class="${ready?"":"err"}">${ready?"listo":(d.configured?"sin conectar":"sin configurar")}</small> ${act}</label>`}).join("");
+ document.querySelectorAll("[data-net]").forEach(x=>x.onchange=async()=>{try{await api("/api/settings",PUT({publish:{enabled:true,[x.dataset.net]:{enabled:x.checked}}}))}catch(e){alert(e.message);x.checked=!x.checked}loadAuto();amNets()});
+ document.querySelectorAll("[data-cfg]").forEach(a=>a.onclick=()=>show("set"))}
+amNets();
 show((location.hash||"#live").slice(1)in{live:1,videos:1,clips:1,pub:1,set:1}?(location.hash||"#live").slice(1):"live");
 
 status();clips();pubs();setInterval(pubs,3000);setInterval(status,1500);setInterval(clips,4000);

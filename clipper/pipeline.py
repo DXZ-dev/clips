@@ -24,6 +24,23 @@ def load_words(path: str | Path) -> list[Word]:
             for w in json.loads(Path(path).read_text())]
 
 
+def clip_labels(cfg: Config, words: list[Word], reason: str, detail: str = "") -> dict:
+    """Título (según lo que dice el clip; con IA si está activada «generar con IA») y canal/plataforma de origen."""
+    from . import ai, links
+    from .publish import metadata
+    transcript = " ".join(w.text for w in words)
+    title = None
+    if transcript and cfg.ai.auto_metadata and cfg.ai.llm.enabled:
+        try:
+            title = ai.suggest(cfg.ai.llm, transcript, reason, detail).get("title") or None
+        except Exception:  # noqa: BLE001
+            log.warning("IA no disponible para el título; se usa el texto del clip")
+    title = title or metadata.headline(transcript, reason, detail)
+    s = cfg.source
+    src = links.channel_of(s.url) if s.type in ("live", "streamlink", "ytdlp") and s.url else {"platform": {"rtmp": "obs", "file": "archivo"}.get(s.type, s.type), "channel": ""}
+    return {"title": title, **src}
+
+
 def clip_from_range(cfg: Config, t0: float, t1: float, words_abs: list[Word] | None, reason: str,
                     detail: str = "", name: str | None = None) -> Path:
     """Clip del tramo [t0, t1] (tiempo de stream). `words_abs` con tiempos absolutos de stream.
@@ -56,7 +73,7 @@ def clip_from_range(cfg: Config, t0: float, t1: float, words_abs: list[Word] | N
             log.warning("recorte fuera de la fuente (pedido %.1f s, fuente %.1f s): ajustado a %.1f–%.1f", t0 - seg0, sdur, ts, te)
         spec = default_spec(cfg, words, ts, te)
         out = out_dir(cfg) / f"{stem}.mp4"
-        finalize(cfg, stem, src, spec, out, {"reason": reason, "detail": detail})
+        finalize(cfg, stem, src, spec, out, {"reason": reason, "detail": detail, **clip_labels(cfg, [w for w in (words_abs or []) if w.end > t0 and w.start < t1], reason, detail)})
         if tmp:
             tmp.cleanup()
         return out

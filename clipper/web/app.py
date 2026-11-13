@@ -402,6 +402,16 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
             raise HTTPException(404, "el segmento ya salió del buffer")
         return FileResponse(p, media_type="video/mp2t", headers={"Cache-Control": "max-age=60"})
 
+    @app.post("/api/auto/pause")
+    def auto_pause():
+        engine.pause()
+        return {"paused": True}
+
+    @app.post("/api/auto/resume")
+    def auto_resume():
+        engine.resume()
+        return {"paused": False}
+
     @app.get("/api/live/frame")
     def live_frame(w: int = 960):
         """Imagen (JPEG) del directo ahora mismo: sirve para marcar la cámara del streamer."""

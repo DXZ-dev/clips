@@ -384,8 +384,15 @@ class VideoManager:
             job.message = f"Creando clip {i} de {len(moments)}…"
             out = out_dir(cfg) / f"{stem}.mp4"
             with self.e.render_lock:
+                from . import links
+                from .pipeline import clip_labels
+                lab = clip_labels(cfg, [w for w in words if w.end > t0 and w.start < t1], m.kinds[0], m.detail)
+                if job.url:
+                    lab.update(links.channel_of(job.url))
+                else:
+                    lab.update(platform="subido", channel=job.name.rsplit(".", 1)[0][:40])
                 finalize(cfg, stem, shared, spec, out, {"reason": m.kinds[0], "detail": m.detail, "score": m.score,
-                                                         "video": job.name, "at": round(m.t, 1)})
+                                                         "video": job.name, "at": round(m.t, 1), **lab})
             job.clips.append(out.name)
             job.progress = round(0.7 + 0.3 * i / len(moments), 3)
             try:

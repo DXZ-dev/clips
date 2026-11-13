@@ -19,6 +19,22 @@ def platform_of(url: str) -> str:
     return "other"
 
 
+def channel_of(url: str) -> dict:
+    """{"platform": "twitch|kick|youtube|otro", "channel": "nombre"} a partir del enlace del canal o directo."""
+    plat = platform_of(url)
+    parts = [p for p in (urlparse(url).path or "").split("/") if p]
+    ch = ""
+    if plat in ("twitch", "kick") and parts:
+        ch = parts[0] if parts[0].lower() not in ("videos", "video", "clip", "directory") else (parts[1] if len(parts) > 1 else "")
+    elif plat == "youtube":
+        for i, p in enumerate(parts):
+            if p.startswith("@"):
+                ch = p
+            elif p in ("channel", "c", "user") and i + 1 < len(parts):
+                ch = parts[i + 1]
+    return {"platform": plat if plat != "other" else "otro", "channel": ch}
+
+
 def valid_url(url: str) -> bool:
     return bool(re.match(r"^https?://[^\s]+$", url)) and not url.startswith("-")
 

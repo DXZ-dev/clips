@@ -25,7 +25,7 @@ def headline(transcript: str, reason: str, detail: str, limit: int = 70) -> str:
 
 def render(cfg: PublishCfg, meta: dict, title_limit: int = 100, desc_limit: int = 2200) -> tuple[str, str]:
     tr = meta.get("transcript") or ""
-    vars_ = _Safe(headline=headline(tr, meta.get("reason", ""), meta.get("detail", "")),
+    vars_ = _Safe(headline=meta.get("title") or headline(tr, meta.get("reason", ""), meta.get("detail", "")),
                   transcript=tr[:300], reason=meta.get("reason", ""), detail=meta.get("detail", ""),
                   hashtags=" ".join(cfg.hashtags), date=(meta.get("created") or "")[:10])
     title = cfg.title_template.format_map(vars_).strip()

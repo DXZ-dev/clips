@@ -69,6 +69,7 @@ class Engine:
         self._pending_since = 0.0
         self._plock = threading.Lock()
         self._vh: int | None = None
+        self.paused = False                                   # pausa de la generación AUTOMÁTICA (los clips manuales siguen funcionando)
         self.transcriber: LiveTranscriber | None = None
         self.transcriber_error: str | None = None
         self.transcriber_ready = False
@@ -197,6 +198,16 @@ class Engine:
         finally:
             self.render_lock.release()
 
+    def pause(self) -> None:
+        self.paused = True
+        with self._plock:
+            self._pending = []
+        self.event("system", "generación automática de clips en PAUSA")
+
+    def resume(self) -> None:
+        self.paused = False
+        self.event("system", "generación automática de clips reanudada")
+
     def _has_cam(self) -> bool:
         return self.cfg.layout.facecam is not None or self.cfg.layout.mode == "split"
 
@@ -205,7 +216,7 @@ class Engine:
         (voz + volumen + movimiento + reacción…) y decide por puntuación (ver _flush_pending)."""
         if tr.kind not in ("action", "reaction"):                # esas dos son muy frecuentes: solo cuentan, no se anuncian
             self.event(tr.kind, tr.detail, at=round(tr.t, 1))
-        if not self.cfg.triggers.auto_enabled:
+        if not self.cfg.triggers.auto_enabled or self.paused:
             return
         with self._plock:
             if not self._pending:
@@ -221,6 +232,10 @@ class Engine:
 
     def _flush_pending(self, force: bool = False) -> None:
         tc = self.cfg.triggers
+        if self.paused:
+            with self._plock:
+                self._pending = []
+            return
         with self._plock:
             if not self._pending or (not force and time.time() - self._pending_since < 6.0):
                 return
@@ -403,6 +418,7 @@ class Engine:
             "events": list(self.events)[:30],
             "videos_active": sum(1 for j in self.videos.jobs.values() if j.status not in ("done", "error", "cancelled")),
             "auto_enabled": self.cfg.triggers.auto_enabled,
+            "paused": self.paused,
             "auto": {"enabled": self.cfg.triggers.auto_enabled, "max_per_hour": self.cfg.triggers.max_per_hour,
                      "last_hour": sum(1 for x in self._auto_times if time.time() - x < 3600)},
             "auth": bool(self.cfg.server.password_hash),
@@ -425,6 +441,6 @@ class Engine:
                     pass
             out.append({"name": f.name, "size_mb": round(f.stat().st_size / 1e6, 2),
                         "mtime": f.stat().st_mtime, **{k: meta.get(k) for k in
-                        ("reason", "detail", "duration", "encoder", "transcript", "layout", "warning", "edited")},
+                        ("reason", "detail", "duration", "encoder", "transcript", "layout", "warning", "edited", "title", "platform", "channel", "score")},
                         "editable": (d / "_src" / f"{f.stem}.edit.json").exists()})
         return out

@@ -237,3 +237,55 @@ def test_live_frame_and_facecam_detect_endpoints(tmp_path):
     assert ok.status_code == 200 and cfg.layout.facecam.w == 0.285 and cfg.layout.mode == "split"
     assert c.put("/api/settings", json={"layout": {"facecam": {"x": 0.9, "y": 0, "w": 0.3, "h": 0.3}}}).status_code == 422   # se sale del fotograma
     assert c.put("/api/settings", json={"layout": {"facecam": None}}).status_code == 200 and cfg.layout.facecam is None
+
+
+# ------------------------------------------------------------------ pausa, títulos y canal de cada clip
+def test_pause_resume_blocks_only_automatic_clips(tmp_path):
+    from clipper.detect.triggers import Trigger
+    cfg = Config()
+    cfg.buffer.dir, cfg.clip.output_dir, cfg.transcribe.enabled = str(tmp_path / "b"), str(tmp_path / "o"), False
+    eng = Engine(cfg, data_dir=tmp_path)
+    c = TestClient(create_app(eng, manage_engine=False), base_url="http://localhost")
+    assert c.get("/api/status").json()["paused"] is False
+    assert c.post("/api/auto/pause").json() == {"paused": True} and c.get("/api/status").json()["paused"] is True
+    eng._auto(Trigger("keyword", 100, "mira esto"))
+    eng._flush_pending(force=True)
+    assert len(eng.jobs) == 0                                              # en pausa no se crea nada solo
+    assert any("PAUSA" in e["detail"] for e in eng.events)
+    assert c.post("/api/auto/resume").json() == {"paused": False}
+    eng._auto(Trigger("keyword", 200, "mira esto"))
+    eng._flush_pending(force=True)
+    assert len(eng.jobs) == 1                                              # reanudado: vuelve a funcionar
+
+
+def test_clip_labels_title_and_channel(tmp_path):
+    from clipper.pipeline import clip_labels
+    from clipper.subtitles import Word
+    cfg = Config()
+    cfg.source.type, cfg.source.url = "live", "https://kick.com/epidemic77"
+    words = [Word(1, 1.4, "¡Mira"), Word(1.4, 1.8, "esto!"), Word(2, 2.5, "Es increíble.")]
+    lab = clip_labels(cfg, words, "keyword", "mira esto")
+    assert lab == {"title": "Mira esto!", "platform": "kick", "channel": "epidemic77"} or lab["title"].startswith("Mira esto")
+    assert lab["platform"] == "kick" and lab["channel"] == "epidemic77"
+    assert clip_labels(cfg, [], "laughter", "")["title"] == "Se lía una buena 😂"                 # sin texto: título por tipo de momento
+    cfg.source.type, cfg.source.url = "file", ""
+    assert clip_labels(cfg, words, "keyword", "")["platform"] == "archivo"
+    cfg.source.type, cfg.source.url = "live", "https://www.youtube.com/@MrBeast/live"
+    assert clip_labels(cfg, words, "keyword", "")["channel"] == "@MrBeast"
+    # con la IA activada pero caída, se queda el texto del clip
+    cfg.ai.auto_metadata, cfg.ai.llm.enabled, cfg.ai.llm.model, cfg.ai.llm.base_url = True, True, "m", "http://127.0.0.1:9/v1"
+    assert clip_labels(cfg, words, "keyword", "")["title"].startswith("Mira esto")
+
+
+def test_list_clips_exposes_title_and_channel_and_title_feeds_publication(tmp_path):
+    import json as _json
+    from clipper.publish import metadata
+    cfg = Config()
+    cfg.buffer.dir, cfg.clip.output_dir, cfg.transcribe.enabled = str(tmp_path / "b"), str(tmp_path / "o"), False
+    (tmp_path / "o").mkdir()
+    (tmp_path / "o" / "c.mp4").write_bytes(b"x")
+    meta = {"reason": "keyword", "title": "Mi título automático", "platform": "kick", "channel": "epidemic77", "score": 4.2, "transcript": "hola"}
+    (tmp_path / "o" / "c.json").write_text(_json.dumps(meta))
+    row = Engine(cfg, data_dir=tmp_path).list_clips()[0]
+    assert (row["title"], row["platform"], row["channel"], row["score"]) == ("Mi título automático", "kick", "epidemic77", 4.2)
+    assert metadata.render(cfg.publish, meta)[0] == "Mi título automático"          # el título del clip pasa a la publicación
