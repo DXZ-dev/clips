@@ -514,12 +514,13 @@ install_service() {
 Description=clipper (clips verticales desde directos)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 WorkingDirectory=$APP_DIR
 ExecStart=$LAUNCHER serve
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
@@ -543,7 +544,7 @@ After=network-online.target
 Type=simple
 WorkingDirectory=$APP_DIR
 ExecStart=$LAUNCHER serve
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

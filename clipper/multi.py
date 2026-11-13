@@ -25,6 +25,7 @@ def plan(cfg: Config, n: int, launcher: str | None = None) -> dict:
 Description=clipper transmisión {n}
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -34,7 +35,7 @@ Environment=CLIPPER__SERVER__PORT={port}
 Environment=CLIPPER__SERVER__HOST={cfg.server.host}
 Environment=CLIPPER__CLIP__OUTPUT_DIR={out}
 ExecStart={cmd} serve
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
