@@ -545,6 +545,11 @@ const coSet=async u=>{const m=$("co_msg");try{if(u&&!$("src_url").value.trim()){
  const p={source:{type:"live",url2:u}};if(u)p.source.url=$("src_url").value.trim();await api("/api/settings",PUT(p));m.className="mut";m.innerHTML='<span style="color:var(--ok)">✔ Guardado: conectando los dos directos…</span>';$("pv_collab").classList.toggle("sel",!!u);setTimeout(status,1500)}catch(e){m.className="err";m.textContent=e.message}};
 $("co_on").onclick=()=>{const u=$("co_url2").value.trim();if(!u){$("co_msg").className="err";$("co_msg").textContent="Pega el enlace del 2.º directo.";return}coSet(u)};
 $("co_off").onclick=()=>coSet("");
+let FACE=null;async function faceCheck(){if(!$("studio").offsetParent||document.hidden||!ZN.z2)return;
+ try{const r=await api("/api/live/facecam/check",{method:"POST"});FACE=r.face}catch(e){return}
+ const off=FACE===false;$("cap2").querySelector(".capr").style.opacity=off?.35:1;$("cb_box").style.opacity=off?.35:1;
+ $("cb_box").querySelector("span").textContent=off?"2 · Cámara (sin rostro: desactivada)":"2 · Cámara"}
+setInterval(faceCheck,4000);
 let pvBusy=false,pvTimer=null,pvAt=0;
 async function pvRefresh(manual){if(pvBusy)return;pvBusy=true;const m=$("pv_msg");if(manual)m.textContent="Generando previa…";
  try{const r=await api("/api/live/preview?seconds=8",{method:"POST"});const v=$("pv_vid");v.src=r.url;v.play().catch(()=>{});pvAt=Date.now();m.textContent=""}

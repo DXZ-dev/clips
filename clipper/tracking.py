@@ -311,6 +311,21 @@ class FacePath:
     fps: float
     fx: list[float]
     fy: list[float]
+    present: list[bool] | None = None   # ¿hay rostro en la cámara? (se apaga tras ~4 s sin verlo y se enciende al verlo de nuevo)
+
+
+def presence(raw: list, fps: float, off_s: float = 4.0) -> list[bool]:
+    """Cámara activa mientras se vea un rostro; se desactiva si pasan `off_s` s sin verlo y vuelve en cuanto aparece otra vez."""
+    out, lost, on = [], 0, False
+    for r in raw:
+        if r is not None:
+            lost, on = 0, True
+        else:
+            lost += 1
+            if lost > off_s * fps:
+                on = False
+        out.append(on)
+    return out
 
 
 def track_face_in(input_args: list[str], info: VideoInfo, cfg: Config, rect: RectCfg, fps: int = 6) -> FacePath | None:
@@ -332,7 +347,13 @@ def track_face_in(input_args: list[str], info: VideoInfo, cfg: Config, rect: Rec
     finally:
         if hasattr(det, "close"):
             det.close()
-    return smooth_face(raw, fps)
+    fp = smooth_face(raw, fps)
+    real = not isinstance(det, NullDetector)
+    if fp is None and real and raw:                       # nunca se vio un rostro: la cámara queda apagada todo el clip
+        return FacePath(fps, [0.5] * len(raw), [0.45] * len(raw), [False] * len(raw))
+    if fp is not None and real:
+        fp.present = presence(raw, fps)
+    return fp
 
 
 def smooth_face(raw: list, fps: float, dead: tuple[float, float] = (0.08, 0.07), alpha: float = 0.10, hold_s: float = 2.0) -> FacePath | None:

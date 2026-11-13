@@ -93,6 +93,25 @@ def _round_expr(r: int) -> str:
     return (f"if(gt(abs(X-W/2),W/2-{r})*gt(abs(Y-H/2),H/2-{r}),if(lte(hypot(abs(X-W/2)-(W/2-{r}),abs(Y-H/2)-(H/2-{r})),{r}),255,0),255)")
 
 
+def _cam_enable(fp, spec, cfg) -> str | None:
+    """Expresión `enable` de ffmpeg con los tramos en que hay rostro. None = siempre visible; "" = nunca."""
+    if fp is None or fp.present is None or not cfg.layout.hide_cam_without_face:
+        return None
+    if all(fp.present):
+        return None
+    if not any(fp.present):
+        return ""
+    segs, start = [], None
+    for i, p in enumerate(fp.present + [False]):
+        if p and start is None:
+            start = i
+        elif not p and start is not None:
+            segs.append((start / fp.fps, i / fp.fps))
+            start = None
+    segs[0] = (0.0, segs[0][1]) if segs[0][0] < 1.0 else segs[0]      # el arranque no parpadea
+    return "+".join(f"between(t,{a:.2f},{b:.2f})" for a, b in segs)
+
+
 def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[str], static: bool = False,
                 cache: dict | None = None, panels: str | None = None) -> tuple[str, int | None, dict]:
     """Devuelve (filtergraph terminado en [v0], y de la unión cámara/gameplay o None, info de lo decidido)."""
@@ -179,8 +198,13 @@ def build_graph(cfg: Config, spec: EditSpec, info: VideoInfo, input_args: list[s
         note.update(face_in_cam=bool(face), panels="overlay" if overlay else "cards" if cards else "flush")
         if overlay:
             mk = f"color=c=white:s={PW}x{cam_h}:r=25:d=0.04,format=gray,geq=lum='{_round_expr(cfg.layout.panel_radius)}',loop=loop=-1:size=1[mk]"
+            en = _cam_enable(fp, spec, cfg)
+            if en == "":                                       # sin rostro en todo el clip: solo el gameplay
+                note["cam_hidden"] = True
+                return f"[0:v]split=2[s1][s2];{cam};{game};[game]null[v0]", None, note
+            ov = f":enable='{en}'" if en else ""
             graph = (f"[0:v]split=2[s1][s2];{cam};{game};{mk};[cam]format=yuva420p[camf];[camf][mk]alphamerge[camr];"
-                     f"[game][camr]overlay={ob[0]}:{ob[1]}[v0]")
+                     f"[game][camr]overlay={ob[0]}:{ob[1]}{ov}[v0]")
             return graph, None, note
         if cards:                                          # dos pantallas independientes sobre un fondo desenfocado del propio directo
             top_h, bot_h = (cam_h, game_h) if spec.facecam_position == "top" else (game_h, cam_h)

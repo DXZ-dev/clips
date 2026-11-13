@@ -474,6 +474,31 @@ def create_app(engine: Engine, manage_engine: bool = True) -> FastAPI:
             engine.render_lock.release()
         return {"facecam": rect.model_dump() if rect else None}
 
+    _fd: dict = {}
+
+    @app.post("/api/live/facecam/check")
+    def live_facecam_check():
+        """¿Se ve un rostro dentro del recuadro de la cámara ahora mismo? (el panel lo consulta cada ~4 s)"""
+        import cv2
+        import numpy as np
+        from ..tracking import NullDetector, make_detector
+        r = engine.cfg.layout.facecam
+        if r is None:
+            return {"face": None}
+        if "d" not in _fd:
+            _fd["d"] = make_detector(engine.cfg)
+        d = _fd["d"]
+        if isinstance(d, NullDetector):
+            return {"face": None}
+        img = cv2.imdecode(np.frombuffer(_live_jpeg(640), np.uint8), cv2.IMREAD_COLOR)
+        h, w = img.shape[:2]
+        x, y, cw, ch = int(r.x * w), int(r.y * h), max(8, int(r.w * w)), max(8, int(r.h * h))
+        crop = img[y:y + ch, x:x + cw]
+        if crop.size == 0:
+            return {"face": False}
+        crop = cv2.resize(crop, (320, max(2, int(320 * crop.shape[0] / crop.shape[1]))))
+        return {"face": bool(d.detect(crop))}
+
     @app.get("/api/live/preview.mp4")
     def live_preview_file():
         p = ed.src_dir(engine.cfg) / "live_preview.mp4"

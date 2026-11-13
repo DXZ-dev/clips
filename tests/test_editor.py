@@ -369,3 +369,16 @@ def test_subtitles_never_two_lines_at_once_even_with_overlapping_words():
     ev = sorted((float(a.split(":")[-1]), float(b.split(":")[-1])) for a, b in
                 (re.match(r"Dialogue: 0,([\d:.]+),([\d:.]+)", l).groups() for l in ass.splitlines() if l.startswith("Dialogue: 0")))
     assert all(ev[i][1] <= ev[i + 1][0] + 1e-6 for i in range(len(ev) - 1)), ev
+
+
+def test_cam_hides_without_face():
+    from clipper.render import _cam_enable
+    from clipper.tracking import FacePath, presence
+    cfg = Config()
+    raw = [(0.5, 0.5)] * 12 + [None] * 40 + [(0.5, 0.5)] * 12           # 6 fps: ~7 s sin rostro en medio
+    pr = presence(raw, 6)
+    assert pr[11] and pr[12 + 6] and not pr[12 + 30] and pr[-1]            # sigue ~4 s, se apaga, vuelve al verlo
+    en = _cam_enable(FacePath(6, [.5] * 64, [.5] * 64, pr), None, cfg)
+    assert en.count("between") == 2
+    assert _cam_enable(FacePath(6, [.5], [.5], [False]), None, cfg) == ""
+    assert _cam_enable(FacePath(6, [.5], [.5], None), None, cfg) is None
