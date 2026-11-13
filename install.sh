@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # clipper — instalador para Linux (Debian/Ubuntu probado; Fedora y Arch en "mejor esfuerzo").
 #
-#   Desde GitHub (clona el repo, instala y verifica). El repositorio es PRIVADO: hace falta un token
-#   (GITHUB_TOKEN, con permiso de lectura de "Contents" en DXZ-dev/clips):
-#     export GITHUB_TOKEN=github_pat_xxx
-#     curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/DXZ-dev/clips/RAMA/install.sh | bash -s -- --yes
-#   (RAMA = la rama por defecto del repo; el instalador clona esa misma rama salvo que uses --branch)
+#   Desde GitHub (repositorio público; clona, instala y verifica todo):
+#     curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash
+#   Sin preguntas:  ... | bash -s -- --yes        Con servicio systemd:  ... | bash -s -- --yes --service
 #   Desde un clon local:
 #     git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh
+#
+#   (Solo si algún día el repo vuelve a ser privado: exporta GITHUB_TOKEN con permiso de lectura.)
 #   Es idempotente: volver a ejecutarlo actualiza el código y las dependencias.
 set -Eeuo pipefail
 

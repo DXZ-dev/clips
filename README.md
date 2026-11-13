@@ -7,14 +7,16 @@ El instalador clona el repositorio, instala las dependencias del sistema (ffmpeg
 instala los paquetes de Python (torch en versión CPU, ~200 MB), descarga los modelos, crea el comando `clipper` y **verifica** todo con una
 prueba de render real. Es idempotente: volver a ejecutarlo actualiza el código y las dependencias.
 
-**Repositorio privado → hace falta un token de GitHub** (fine-grained, permiso de solo lectura de *Contents* sobre `DXZ-dev/clips`):
+**Un solo comando** (repositorio público; pide `sudo` solo para instalar paquetes del sistema):
 ```bash
-export GITHUB_TOKEN=github_pat_xxxxxxxx
-curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
-  https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash
 ```
-(Hoy el repo solo tiene esa rama; cuando exista `main`, sustitúyela en la URL. El instalador clona la rama por defecto del repo salvo que uses `--branch`.)
-Si prefieres no pasar el token por `curl`: `git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh`.
+Sin preguntas y con arranque automático del panel como servicio:
+```bash
+curl -fsSL https://raw.githubusercontent.com/DXZ-dev/clips/claude/determined-johnson-p5vd5b/install.sh | bash -s -- --yes --service
+```
+(Hoy el repo solo tiene esa rama; cuando exista `main`, sustitúyela en la URL. El instalador clona la rama por defecto salvo que uses `--branch`.)
+Alternativa: `git clone https://github.com/DXZ-dev/clips.git && cd clips && ./install.sh`. Si el repo vuelve a ser privado, exporta `GITHUB_TOKEN` (lectura de *Contents*).
 
 Opciones útiles (`./install.sh --help`): `--service` (servicio systemd de usuario que arranca el panel), `--port N`, `--whisper tiny|base|small|medium|large-v3`,
 `--gpu`/`--cpu` (librerías CUDA para Whisper; se autodetecta NVIDIA), `--no-models`, `--dry-run` (muestra qué haría), `--uninstall [--purge]`
